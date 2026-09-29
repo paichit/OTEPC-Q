@@ -1,0 +1,9 @@
+{
+  "initialJavaScriptBytes": 491474,
+  "initialJavaScriptGzipBytes": 140898,
+  "totalJavaScriptBytes": 491474,
+  "cssBytes": 25264,
+  "cssGzipBytes": 6548,
+  "totalAssetsBytes": 516738,
+  "note": "gzip sizes are estimates for separate files; excludes remote Google Fonts and HTTP headers"
+}

@@ -1,0 +1,16 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+# Google Cloud service account keys must never be committed.
+otepc-q-*.json
+*service-account*.json
+.vercel/
+*.log
+test-results/
+playwright-report/
+.codex/
+supabase/.temp/
+w_paichit/
+th-TH-Standard-A.wav

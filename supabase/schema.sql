@@ -1,0 +1,389 @@
+-- Run once in the Supabase SQL Editor on a new project.
+-- All dates are calculated on the DATABASE using Asia/Bangkok.
+create schema if not exists extensions;
+create extension if not exists pgcrypto with schema extensions;
+create table public.queues (
+  id uuid primary key default gen_random_uuid(),
+  created_at timestamptz not null default now(),
+  queue_date date not null default (now() at time zone 'Asia/Bangkok')::date,
+  queue_number text not null,
+  service_group text not null check (service_group in ('A', 'B')),
+  counter_number integer check (counter_number between 1 and 10),
+  status text not null default 'waiting' check (status in ('waiting', 'calling', 'completed', 'skipped', 'cancelled')),
+  called_at timestamptz,
+  cancelled_at timestamptz,
+  updated_at timestamptz not null default now(),
+  request_id uuid not null unique,
+  unique (queue_date, queue_number),
+  check (queue_number ~ ('^' || service_group || '[0-9]{3,}$')),
+  check (status <> 'calling' or called_at is not null)
+);
+create index queues_daily_waiting on public.queues (queue_date, created_at, id) where status = 'waiting';
+create unique index queues_one_active_call_per_day on public.queues (queue_date) where status = 'calling';
+create index queues_daily_history
+  on public.queues (queue_date, updated_at desc, id)
+  where status in ('completed', 'skipped', 'cancelled');
+alter table public.queues enable row level security;
+create policy "Public reads today's queues" on public.queues for select to anon, authenticated
+  using (queue_date = (now() at time zone 'Asia/Bangkok')::date);
+revoke all on public.queues from anon, authenticated;
+grant select on public.queues to anon, authenticated;
+-- There are intentionally no INSERT/UPDATE/DELETE policies: writes use RPC only.
+
+
+-- Immutable call attempts survive a daily reset; queue_id is deliberately not a foreign key.
+create table public.queue_call_events (
+  id bigint generated always as identity primary key,
+  queue_id uuid not null,
+  queue_date date not null,
+  queue_number text not null,
+  event_kind text not null check (event_kind in ('initial', 'recall')),
+  called_at timestamptz not null,
+  staff_id uuid
+);
+create index queue_call_events_queue on public.queue_call_events (queue_id, called_at, id);
+create index queue_call_events_recent on public.queue_call_events (called_at desc, id desc);
+alter table public.queue_call_events enable row level security;
+revoke all on public.queue_call_events from anon, authenticated;
+-- No direct table policies: staff-only RPC exposes audit data.
+
+-- Staff accounts have no email, phone, or Supabase Auth user.
+create table public.staff_accounts (
+  id uuid primary key default gen_random_uuid(),
+  username text not null unique check (username ~ '^[a-z][a-z0-9._-]{2,31}$'),
+  password_hash text not null check (password_hash ~ '^[$]2a[$]12[$]'),
+  active boolean not null default true,
+  failed_attempts integer not null default 0,
+  locked_until timestamptz,
+  created_at timestamptz not null default now()
+);
+alter table public.staff_accounts enable row level security;
+revoke all on public.staff_accounts from public, anon, authenticated;
+
+create table public.staff_sessions (
+  token_hash text primary key,
+  staff_id uuid not null references public.staff_accounts(id) on delete cascade,
+  expires_at timestamptz not null,
+  created_at timestamptz not null default now()
+);
+create index staff_sessions_staff_expiry on public.staff_sessions (staff_id, expires_at desc);
+alter table public.staff_sessions enable row level security;
+revoke all on public.staff_sessions from public, anon, authenticated;
+
+create function public.staff_login(p_username text, p_password text) returns jsonb
+language plpgsql security definer set search_path = '' as $$
+declare
+  account public.staff_accounts;
+  new_token text;
+  expiry timestamptz := pg_catalog.clock_timestamp() + interval '12 hours';
+begin
+  if p_username is null or p_username !~ '^[a-z][a-z0-9._-]{2,31}$'
+    or p_password is null or length(p_password) < 12 or pg_catalog.octet_length(p_password) > 72 then
+    return pg_catalog.jsonb_build_object('error', 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง');
+  end if;
+
+  select * into account from public.staff_accounts
+    where username = p_username and active = true for update;
+  if not found then
+    perform extensions.crypt(p_password, extensions.gen_salt('bf', 12));
+    return pg_catalog.jsonb_build_object('error', 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง');
+  end if;
+  if account.locked_until > pg_catalog.clock_timestamp() then
+    return pg_catalog.jsonb_build_object('error', 'บัญชีถูกล็อกชั่วคราว กรุณาลองใหม่ภายหลัง');
+  end if;
+  if account.password_hash <> extensions.crypt(p_password, account.password_hash) then
+    update public.staff_accounts
+      set failed_attempts = case when failed_attempts >= 4 then 0 else failed_attempts + 1 end,
+          locked_until = case when failed_attempts >= 4 then pg_catalog.clock_timestamp() + interval '15 minutes' else null end
+      where id = account.id;
+    return pg_catalog.jsonb_build_object('error', 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง');
+  end if;
+
+  update public.staff_accounts set failed_attempts = 0, locked_until = null where id = account.id;
+  delete from public.staff_sessions where staff_id = account.id and expires_at <= pg_catalog.clock_timestamp();
+  new_token := pg_catalog.encode(extensions.gen_random_bytes(32), 'hex');
+  insert into public.staff_sessions (token_hash, staff_id, expires_at)
+    values (pg_catalog.encode(extensions.digest(new_token, 'sha256'), 'hex'), account.id, expiry);
+  return pg_catalog.jsonb_build_object('token', new_token, 'username', account.username, 'expires_at', expiry);
+end;
+$$;
+
+create function public.staff_session(p_token text) returns jsonb
+language plpgsql stable security definer set search_path = '' as $$
+declare result jsonb;
+begin
+  if p_token is null or p_token !~ '^[0-9a-f]{64}$' then return null; end if;
+  select pg_catalog.jsonb_build_object('username', a.username, 'expires_at', s.expires_at)
+    into result from public.staff_sessions s
+    join public.staff_accounts a on a.id = s.staff_id
+    where s.token_hash = pg_catalog.encode(extensions.digest(p_token, 'sha256'), 'hex')
+      and s.expires_at > pg_catalog.clock_timestamp() and a.active;
+  return result;
+end;
+$$;
+
+create function public.staff_logout(p_token text) returns void
+language plpgsql security definer set search_path = '' as $$
+begin
+  if p_token is null or p_token !~ '^[0-9a-f]{64}$' then return; end if;
+  delete from public.staff_sessions
+    where token_hash = pg_catalog.encode(extensions.digest(p_token, 'sha256'), 'hex');
+end;
+$$;
+
+create function public.require_queue_staff(p_token text) returns uuid
+language plpgsql stable security definer set search_path = '' as $$
+declare actor uuid;
+begin
+  if p_token is null or p_token !~ '^[0-9a-f]{64}$' then
+    raise exception 'เซสชันเจ้าหน้าที่หมดอายุ กรุณาเข้าสู่ระบบอีกครั้ง' using errcode = '42501';
+  end if;
+  select a.id into actor from public.staff_sessions s
+    join public.staff_accounts a on a.id = s.staff_id
+    where s.token_hash = pg_catalog.encode(extensions.digest(p_token, 'sha256'), 'hex')
+      and s.expires_at > pg_catalog.clock_timestamp() and a.active;
+  if actor is null then
+    raise exception 'เซสชันเจ้าหน้าที่หมดอายุ กรุณาเข้าสู่ระบบอีกครั้ง' using errcode = '42501';
+  end if;
+  return actor;
+end;
+$$;
+
+
+create function public.issue_queue(p_group text, p_request_id uuid) returns public.queues
+language plpgsql security definer set search_path = '' as $$
+declare
+  d date := (now() at time zone 'Asia/Bangkok')::date;
+  n bigint;
+  result public.queues;
+begin
+  if p_group is null or p_group not in ('A', 'B') or p_request_id is null then
+    raise exception 'ประเภทบริการหรือรหัสคำขอไม่ถูกต้อง';
+  end if;
+  -- Shared by all queue mutations: two kiosks/staff actions/resets cannot race.
+  perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('otepc-queue:' || d::text, 0));
+  select * into result from public.queues where request_id = p_request_id;
+  if found then
+    if result.queue_date <> d or result.service_group <> p_group then
+      raise exception 'คำขอนี้หมดอายุหรือเป็นของกลุ่มบริการอื่น กรุณาเริ่มรับคิวใหม่';
+    end if;
+    return result;
+  end if;
+  select count(*) + 1 into n from public.queues where queue_date = d and service_group = p_group;
+  insert into public.queues (queue_date, queue_number, service_group, request_id)
+    values (d, p_group || lpad(n::text, greatest(3, length(n::text)), '0'), p_group, p_request_id)
+    returning * into result;
+  return result;
+end;
+$$;
+
+create function public.call_next(p_token text, p_expected uuid default null) returns public.queues
+language plpgsql security definer set search_path = '' as $$
+declare
+  actor_id uuid;
+  d date := (now() at time zone 'Asia/Bangkok')::date;
+  next_queue public.queues;
+  current_id uuid;
+begin
+  actor_id := public.require_queue_staff(p_token);
+  perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('otepc-queue:' || d::text, 0));
+  select id into current_id from public.queues where queue_date = d and status = 'calling';
+  if current_id is distinct from p_expected then
+    raise exception 'คิวปัจจุบันถูกเปลี่ยนโดยเจ้าหน้าที่อีกคนแล้ว กรุณาโหลดข้อมูลอีกครั้ง';
+  end if;
+  select * into next_queue from public.queues
+    where queue_date = d and status = 'waiting'
+    order by created_at, id limit 1 for update;
+  if not found then return null; end if;
+  update public.queues set status = 'completed', updated_at = clock_timestamp() where id = current_id;
+  update public.queues set status = 'calling', counter_number = null, called_at = clock_timestamp(), updated_at = clock_timestamp()
+    where id = next_queue.id returning * into next_queue;
+  insert into public.queue_call_events (queue_id, queue_date, queue_number, event_kind, called_at, staff_id)
+    values (next_queue.id, next_queue.queue_date, next_queue.queue_number, 'initial', next_queue.called_at, actor_id);
+  return next_queue;
+end;
+$$;
+
+create function public.recall_current(p_token text, p_expected uuid) returns public.queues
+language plpgsql security definer set search_path = '' as $$
+declare
+  actor_id uuid;
+  d date := (now() at time zone 'Asia/Bangkok')::date;
+  result public.queues;
+begin
+  actor_id := public.require_queue_staff(p_token);
+  perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('otepc-queue:' || d::text, 0));
+  update public.queues set called_at = clock_timestamp(), updated_at = clock_timestamp()
+    where id = p_expected and queue_date = d and status = 'calling' returning * into result;
+  if not found then raise exception 'คิวปัจจุบันเปลี่ยนไปแล้ว กรุณาโหลดข้อมูลอีกครั้ง'; end if;
+  insert into public.queue_call_events (queue_id, queue_date, queue_number, event_kind, called_at, staff_id)
+    values (result.id, result.queue_date, result.queue_number, 'recall', result.called_at, actor_id);
+  return result;
+end;
+$$;
+
+create function public.cancel_waiting(p_token text, p_queue_id uuid) returns public.queues
+language plpgsql security definer set search_path = '' as $$
+declare
+  d date := (now() at time zone 'Asia/Bangkok')::date;
+  result public.queues;
+begin
+  perform public.require_queue_staff(p_token);
+  perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('otepc-queue:' || d::text, 0));
+  update public.queues set status = 'cancelled', cancelled_at = clock_timestamp(), updated_at = clock_timestamp()
+    where id = p_queue_id and queue_date = d and status = 'waiting' returning * into result;
+  if not found then raise exception 'คิวนี้ไม่ได้อยู่ในรายการรอแล้ว กรุณาโหลดข้อมูลอีกครั้ง'; end if;
+  return result;
+end;
+$$;
+
+create function public.queue_call_history(p_token text, p_limit integer default 50) returns jsonb
+language plpgsql stable security definer set search_path = '' as $$
+declare result jsonb;
+begin
+  perform public.require_queue_staff(p_token);
+  -- Keep p_limit in the signature for backwards compatibility; the all-history view is unbounded.
+  with recent as (
+    select queue_id, max(called_at) as last_called_at
+    from public.queue_call_events group by queue_id
+    order by last_called_at desc
+  )
+  select coalesce(jsonb_agg(jsonb_build_object(
+    'queue_id', r.queue_id, 'queue_date', e.queue_date, 'queue_number', e.queue_number,
+    'call_count', count_data.call_count, 'recall_count', count_data.call_count - 1,
+    'last_called_at', r.last_called_at, 'events', count_data.events
+  ) order by r.last_called_at desc), '[]'::jsonb) into result
+  from recent r
+  join lateral (
+    select queue_date, queue_number from public.queue_call_events
+    where queue_id = r.queue_id order by called_at desc, id desc limit 1
+  ) e on true
+  join lateral (
+    select count(*)::integer as call_count,
+      jsonb_agg(jsonb_build_object('event_kind', event_kind, 'called_at', called_at, 'staff_id', staff_id) order by called_at, id) as events
+    from public.queue_call_events where queue_id = r.queue_id
+  ) count_data on true;
+  return result;
+end;
+$$;
+
+create function public.queue_call_history_current(p_token text) returns jsonb
+language plpgsql stable security definer set search_path = '' as $$
+declare result jsonb;
+begin
+  perform public.require_queue_staff(p_token);
+  with current_events as (
+    select e.queue_id, max(e.called_at) as last_called_at
+    from public.queue_call_events e
+    join public.queues q on q.id = e.queue_id
+    where q.queue_date = (now() at time zone 'Asia/Bangkok')::date
+    group by e.queue_id
+  ), called as (
+    select r.queue_id, r.last_called_at as activity_at, jsonb_build_object(
+      'queue_id', r.queue_id, 'queue_date', e.queue_date, 'queue_number', e.queue_number,
+      'status', 'called', 'call_count', count_data.call_count,
+      'recall_count', count_data.call_count - 1,
+      'last_called_at', r.last_called_at, 'events', count_data.events
+    ) as item
+    from current_events r
+    join lateral (
+      select queue_date, queue_number from public.queue_call_events
+      where queue_id = r.queue_id order by called_at desc, id desc limit 1
+    ) e on true
+    join lateral (
+      select count(*)::integer as call_count,
+        jsonb_agg(jsonb_build_object('event_kind', event_kind, 'called_at', called_at, 'staff_id', staff_id) order by called_at, id) as events
+      from public.queue_call_events where queue_id = r.queue_id
+    ) count_data on true
+  ), cancelled as (
+    select q.id as queue_id, coalesce(q.cancelled_at, q.updated_at) as activity_at,
+      jsonb_build_object(
+        'queue_id', q.id, 'queue_date', q.queue_date, 'queue_number', q.queue_number,
+        'status', 'cancelled', 'call_count', 0, 'recall_count', 0,
+        'cancelled_at', coalesce(q.cancelled_at, q.updated_at), 'events', '[]'::jsonb
+      ) as item
+    from public.queues q
+    where q.queue_date = (now() at time zone 'Asia/Bangkok')::date
+      and q.status = 'cancelled'
+  )
+  select coalesce(jsonb_agg(item order by activity_at desc, queue_id), '[]'::jsonb)
+    into result from (
+      select * from called
+      union all
+      select * from cancelled
+    ) entries;
+  return result;
+end;
+$$;
+
+create function public.reset_today(p_token text) returns void
+language plpgsql security definer set search_path = '' as $$
+declare d date := (now() at time zone 'Asia/Bangkok')::date;
+begin
+  perform public.require_queue_staff(p_token);
+  perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('otepc-queue:' || d::text, 0));
+  delete from public.queues where queue_date = d;
+end;
+$$;
+
+-- A single snapshot avoids torn reads and PostgREST's 1,000-row list limit.
+create function public.queue_snapshot() returns jsonb
+language sql stable security definer set search_path = '' as $$
+  -- Each branch can use its own index instead of materializing every row of the day.
+  -- Explicit date filters are required because this function runs as its owner.
+  with recent as (
+    select * from public.queues
+    where queue_date = (now() at time zone 'Asia/Bangkok')::date
+      and status in ('completed', 'skipped', 'cancelled')
+    order by updated_at desc, id limit 50
+  ), visible as (
+    select * from public.queues
+    where queue_date = (now() at time zone 'Asia/Bangkok')::date and status = 'waiting'
+    union all
+    select * from public.queues
+    where queue_date = (now() at time zone 'Asia/Bangkok')::date and status = 'calling'
+    union all
+    select * from recent
+  )
+  select jsonb_build_object(
+    'queue_date', (now() at time zone 'Asia/Bangkok')::date,
+    'queues', coalesce((
+      select jsonb_agg(to_jsonb(v) || jsonb_build_object(
+        'call_count', (select count(*) from public.queue_call_events e where e.queue_id = v.id)
+      ) order by v.created_at, v.id)
+      from visible v
+    ), '[]'::jsonb)
+  );
+$$;
+
+revoke all on function public.issue_queue(text, uuid) from public, anon, authenticated;
+revoke all on function public.queue_snapshot() from public, anon, authenticated;
+grant execute on function public.issue_queue(text, uuid) to anon, authenticated;
+grant execute on function public.queue_snapshot() to anon, authenticated;
+revoke all on function public.staff_login(text, text) from public, anon, authenticated;
+revoke all on function public.staff_session(text) from public, anon, authenticated;
+revoke all on function public.staff_logout(text) from public, anon, authenticated;
+revoke all on function public.require_queue_staff(text) from public, anon, authenticated;
+revoke all on function public.call_next(text, uuid) from public, anon, authenticated;
+revoke all on function public.recall_current(text, uuid) from public, anon, authenticated;
+revoke all on function public.cancel_waiting(text, uuid) from public, anon, authenticated;
+revoke all on function public.queue_call_history(text, integer) from public, anon, authenticated;
+revoke all on function public.queue_call_history_current(text) from public, anon, authenticated;
+revoke all on function public.reset_today(text) from public, anon, authenticated;
+grant execute on function public.staff_login(text, text) to anon;
+grant execute on function public.staff_session(text) to anon;
+grant execute on function public.staff_logout(text) to anon;
+grant execute on function public.call_next(text, uuid) to anon;
+grant execute on function public.recall_current(text, uuid) to anon;
+grant execute on function public.cancel_waiting(text, uuid) to anon;
+grant execute on function public.queue_call_history(text, integer) to anon;
+grant execute on function public.queue_call_history_current(text) to anon;
+grant execute on function public.reset_today(text) to anon;
+
+-- REALTIME SETUP (run on Supabase; excluded only by local PGlite tests).
+alter table public.queues replica identity full;
+do $$ begin
+  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'queues') then
+    alter publication supabase_realtime add table public.queues;
+  end if;
+end $$;

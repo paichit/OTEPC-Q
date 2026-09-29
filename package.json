@@ -1,0 +1,30 @@
+{
+  "name": "otepc-queue",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "test": "node --test tests/*.test.js",
+    "test:browser": "playwright test",
+    "size": "node scripts/measure-build.mjs",
+    "check": "npm test && npm run test:browser && npm run build"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.57.0",
+    "lucide-react": "^0.468.0",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
+    "@playwright/test": "^1.63.0",
+    "@tailwindcss/vite": "^4.1.13",
+    "@vitejs/plugin-react": "^5.0.3",
+    "supabase": "^2.118.0",
+    "tailwindcss": "^4.1.13",
+    "vite": "^7.1.7"
+  }
+}
