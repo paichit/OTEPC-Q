@@ -14,3 +14,6 @@ playwright-report/
 supabase/.temp/
 w_paichit/
 th-TH-Standard-A.wav
+
+.vercel
+.env*

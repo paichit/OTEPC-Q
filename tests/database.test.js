@@ -8,7 +8,7 @@ import { pgcrypto } from '@electric-sql/pglite/contrib/pgcrypto';
 test('PostgreSQL queue lifecycle, idempotency, date scoping and permissions', async t => {
   const db = new PGlite({ extensions: { pgcrypto } });
   try {
-    await db.exec('create role anon; create role authenticated; create schema extensions; create extension pgcrypto with schema extensions; grant usage on schema public to anon, authenticated;');
+    await db.exec('create role anon; create role authenticated; create role service_role; create schema extensions; create extension pgcrypto with schema extensions; grant usage on schema public to anon, authenticated;');
     const schema = await readFile(new URL('../supabase/schema.sql', import.meta.url), 'utf8');
     await db.exec(schema.split('-- REALTIME SETUP')[0]);
     await db.exec("insert into public.staff_accounts (username, password_hash) values ('staff01', extensions.crypt('safe-test-password-123', extensions.gen_salt('bf', 12)))");
@@ -73,6 +73,8 @@ test('PostgreSQL queue lifecycle, idempotency, date scoping and permissions', as
       assert.equal(cancellation.call_count, 0);
       assert.deepEqual(cancellation.events, []);
       assert.ok(cancellation.cancelled_at);
+      const allHistoryWithCancellation = (await db.query('select public.queue_call_history($1) as h', [token])).rows[0].h;
+      assert.equal(allHistoryWithCancellation.find(q => q.queue_id === waiting.id).status, 'cancelled');
       await assert.rejects(db.query('select public.cancel_waiting($1, $2)', [token, waiting.id]), /ไม่ได้อยู่ในรายการรอ/);
     });
     await t.test('Skip RPC is unavailable to staff', async () => {
@@ -118,6 +120,9 @@ test('PostgreSQL queue lifecycle, idempotency, date scoping and permissions', as
       const cancellationMigration = await readFile(new URL('../supabase/migrate-current-history-cancellations.sql', import.meta.url), 'utf8');
       await db.exec(cancellationMigration);
       await db.exec(cancellationMigration);
+      const allHistoryCancellationMigration = await readFile(new URL('../supabase/migrate-all-history-cancellations.sql', import.meta.url), 'utf8');
+      await db.exec(allHistoryCancellationMigration);
+      await db.exec(allHistoryCancellationMigration);
       await db.exec('set role anon');
       const after = await snapshot();
       assert.equal(after.queues.filter(q => ['completed', 'skipped', 'cancelled'].includes(q.status)).length, 50);
@@ -148,7 +153,9 @@ test('PostgreSQL queue lifecycle, idempotency, date scoping and permissions', as
       const currentHistory = (await db.query('select public.queue_call_history_current($1) as h', [token])).rows[0].h;
       const allHistory = (await db.query('select public.queue_call_history($1) as h', [token])).rows[0].h;
       assert.deepEqual(currentHistory.map(q => q.queue_id), [newCurrent.id]);
-      assert.equal(allHistory.length, 109);
+      assert.ok(allHistory.some(q => q.queue_id === b1.id));
+      assert.ok(allHistory.some(q => q.status === 'cancelled'));
+      assert.equal(allHistory.length, 110);
       await db.exec('reset role');
       assert.equal((await db.query('select count(*)::int as n from public.queues')).rows[0].n, 2);
     });

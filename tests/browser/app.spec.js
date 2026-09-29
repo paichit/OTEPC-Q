@@ -11,6 +11,7 @@ test('starting the queue display requests and plays spoken confirmation', async 
     expect(route.request().postDataJSON()).toEqual({ action: 'startup' });
     await route.fulfill({ status: 200, contentType: 'audio/mpeg', body: 'mock-audio' });
   });
+  await page.route('https://queue-test.supabase.co/functions/v1/queue-audio-lock', route => route.fulfill({ json: { acquired: true } }));
   await page.route('https://queue-test.supabase.co/rest/v1/rpc/**', route => route.fulfill({ json: { queue_date: '2026-09-22', queues: [] } }));
   await page.goto('/');
   await page.getByRole('button', { name: 'จอแสดงคิว', exact: true }).click();

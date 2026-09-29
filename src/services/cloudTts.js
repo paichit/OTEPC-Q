@@ -1,5 +1,19 @@
 export const cloudTtsPreference = 'google-cloud-standard-a';
 
+export async function requestAudioLease(action, owner, signal) {
+  const url = import.meta.env.VITE_SUPABASE_URL;
+  const key = import.meta.env.VITE_SUPABASE_ANON_KEY;
+  if (!url || !key) throw new Error('ยังไม่ได้ตั้งค่า Supabase');
+  const response = await fetch(`${url}/functions/v1/queue-audio-lock`, {
+    method: 'POST', signal,
+    headers: { apikey: key, Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action, owner }),
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result.error || `Audio lock ${response.status}`);
+  return result.acquired === true;
+}
+
 export async function fetchCloudStartupAudio(signal) {
   const url = import.meta.env.VITE_SUPABASE_URL;
   const key = import.meta.env.VITE_SUPABASE_ANON_KEY;

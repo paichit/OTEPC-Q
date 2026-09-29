@@ -10,7 +10,7 @@ const sql = file => readFile(new URL(`../supabase/${file}`, import.meta.url), 'u
 test('username-only staff authentication and queue permissions', async t => {
   const db = new PGlite({ extensions: { pgcrypto } });
   try {
-    await db.exec('create role anon; create role authenticated; create schema extensions; create extension pgcrypto with schema extensions; grant usage on schema public to anon, authenticated;');
+    await db.exec('create role anon; create role authenticated; create role service_role; create schema extensions; create extension pgcrypto with schema extensions; grant usage on schema public to anon, authenticated;');
     await db.exec((await sql('schema.sql')).split('-- REALTIME SETUP')[0]);
     const query = async (statement, params = []) => (await db.query(statement, params)).rows[0];
     const login = async (name, pass) => (await query('select public.staff_login($1, $2) as result', [name, pass])).result;

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Headphones, ArrowRight, RotateCcw, LogOut, LoaderCircle, LockKeyhole, Megaphone, Ban, History } from 'lucide-react';
+import { Headphones, ArrowRight, RotateCcw, LogOut, LoaderCircle, LockKeyhole, Megaphone, Ban, History, Eye, EyeOff } from 'lucide-react';
 import { getStaffSession, isConfigured, signInStaff, signOutStaff, staffRpc } from '../supabaseClient';
 import { groups } from '../lib/queue';
 import useAction from '../hooks/useAction';
@@ -27,6 +27,7 @@ export default function StaffDashboard({ queues, refresh, onError }) {
   const [session, setSession] = useState(null);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [reset, setReset] = useState(false);
   const [cancelQueue, setCancelQueue] = useState(null);
   const [history, setHistory] = useState(null);
@@ -74,7 +75,7 @@ export default function StaffDashboard({ queues, refresh, onError }) {
   }
   if (!authorized) return <div className="login-card panel"><span className="login-icon"><LockKeyhole size={30} /></span><h1 className="text-2xl font-semibold mt-5">พื้นที่สำหรับเจ้าหน้าที่</h1><p className="text-slate-500 mt-2 mb-6">เข้าสู่ระบบเพื่อเรียก ยกเลิก และรีเซ็ตคิว</p>
     <form className="space-y-4 text-left" onSubmit={e => { e.preventDefault(); run(async () => { const data = await signInStaff(username, password); setSession(data); setPassword(''); }); }}>
-      <label className="field">ชื่อผู้ใช้<input type="text" autoComplete="username" autoCapitalize="none" spellCheck={false} maxLength={32} required value={username} onChange={e => setUsername(e.target.value)} /></label><label className="field">รหัสผ่าน<input type="password" autoComplete="current-password" required value={password} onChange={e => setPassword(e.target.value)} /></label><button className="primary-button w-full" disabled={busy || !isConfigured}>{busy && <LoaderCircle size={18} className="animate-spin" />} เข้าสู่ระบบ</button>
+      <label className="field">ชื่อผู้ใช้<input type="text" autoComplete="username" autoCapitalize="none" spellCheck={false} maxLength={32} required value={username} onChange={e => setUsername(e.target.value)} /></label><label className="field">รหัสผ่าน<span className="password-input-wrap"><input type={showPassword ? 'text' : 'password'} autoComplete="current-password" required value={password} onChange={e => setPassword(e.target.value)} /><button className="password-visibility" type="button" aria-label={showPassword ? 'ซ่อนรหัสผ่าน' : 'แสดงรหัสผ่าน'} aria-pressed={showPassword} onClick={() => setShowPassword(show => !show)}>{showPassword ? <EyeOff size={19} /> : <Eye size={19} />}</button></span></label><button className="primary-button w-full" disabled={busy || !isConfigured}>{busy && <LoaderCircle size={18} className="animate-spin" />} เข้าสู่ระบบ</button>
     </form>
   </div>;
   return <>

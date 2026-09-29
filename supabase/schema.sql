@@ -47,6 +47,18 @@ alter table public.queue_call_events enable row level security;
 revoke all on public.queue_call_events from anon, authenticated;
 -- No direct table policies: staff-only RPC exposes audit data.
 
+-- Immutable cancellation snapshots survive resets just like call events.
+create table public.queue_cancel_events (
+  queue_id uuid primary key,
+  queue_date date not null,
+  queue_number text not null,
+  service_group text not null check (service_group in ('A', 'B')),
+  cancelled_at timestamptz not null
+);
+create index queue_cancel_events_recent on public.queue_cancel_events (cancelled_at desc, queue_id);
+alter table public.queue_cancel_events enable row level security;
+revoke all on public.queue_cancel_events from anon, authenticated;
+
 -- Staff accounts have no email, phone, or Supabase Auth user.
 create table public.staff_accounts (
   id uuid primary key default gen_random_uuid(),
@@ -227,12 +239,16 @@ language plpgsql security definer set search_path = '' as $$
 declare
   d date := (now() at time zone 'Asia/Bangkok')::date;
   result public.queues;
+  cancelled_time timestamptz := clock_timestamp();
 begin
   perform public.require_queue_staff(p_token);
   perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('otepc-queue:' || d::text, 0));
-  update public.queues set status = 'cancelled', cancelled_at = clock_timestamp(), updated_at = clock_timestamp()
+  update public.queues set status = 'cancelled', cancelled_at = cancelled_time, updated_at = cancelled_time
     where id = p_queue_id and queue_date = d and status = 'waiting' returning * into result;
   if not found then raise exception 'คิวนี้ไม่ได้อยู่ในรายการรอแล้ว กรุณาโหลดข้อมูลอีกครั้ง'; end if;
+  insert into public.queue_cancel_events (queue_id, queue_date, queue_number, service_group, cancelled_at)
+    values (result.id, result.queue_date, result.queue_number, result.service_group, result.cancelled_at)
+    on conflict (queue_id) do nothing;
   return result;
 end;
 $$;
@@ -242,27 +258,37 @@ language plpgsql stable security definer set search_path = '' as $$
 declare result jsonb;
 begin
   perform public.require_queue_staff(p_token);
-  -- Keep p_limit in the signature for backwards compatibility; the all-history view is unbounded.
+  -- Keep p_limit in the signature for backwards compatibility; this view returns all history.
   with recent as (
     select queue_id, max(called_at) as last_called_at
     from public.queue_call_events group by queue_id
-    order by last_called_at desc
+  ), called as (
+    select r.last_called_at as activity_at, jsonb_build_object(
+      'queue_id', r.queue_id, 'queue_date', e.queue_date, 'queue_number', e.queue_number,
+      'status', 'called', 'call_count', count_data.call_count,
+      'recall_count', count_data.call_count - 1, 'last_called_at', r.last_called_at,
+      'events', count_data.events
+    ) as item
+    from recent r
+    join lateral (
+      select queue_date, queue_number from public.queue_call_events
+      where queue_id = r.queue_id order by called_at desc, id desc limit 1
+    ) e on true
+    join lateral (
+      select count(*)::integer as call_count,
+        jsonb_agg(jsonb_build_object('event_kind', event_kind, 'called_at', called_at, 'staff_id', staff_id) order by called_at, id) as events
+      from public.queue_call_events where queue_id = r.queue_id
+    ) count_data on true
+  ), cancelled as (
+    select c.cancelled_at as activity_at, jsonb_build_object(
+      'queue_id', c.queue_id, 'queue_date', c.queue_date, 'queue_number', c.queue_number,
+      'status', 'cancelled', 'call_count', 0, 'recall_count', 0,
+      'cancelled_at', c.cancelled_at, 'events', '[]'::jsonb
+    ) as item
+    from public.queue_cancel_events c
   )
-  select coalesce(jsonb_agg(jsonb_build_object(
-    'queue_id', r.queue_id, 'queue_date', e.queue_date, 'queue_number', e.queue_number,
-    'call_count', count_data.call_count, 'recall_count', count_data.call_count - 1,
-    'last_called_at', r.last_called_at, 'events', count_data.events
-  ) order by r.last_called_at desc), '[]'::jsonb) into result
-  from recent r
-  join lateral (
-    select queue_date, queue_number from public.queue_call_events
-    where queue_id = r.queue_id order by called_at desc, id desc limit 1
-  ) e on true
-  join lateral (
-    select count(*)::integer as call_count,
-      jsonb_agg(jsonb_build_object('event_kind', event_kind, 'called_at', called_at, 'staff_id', staff_id) order by called_at, id) as events
-    from public.queue_call_events where queue_id = r.queue_id
-  ) count_data on true;
+  select coalesce(jsonb_agg(item order by activity_at desc), '[]'::jsonb) into result
+  from (select * from called union all select * from cancelled) entries;
   return result;
 end;
 $$;
@@ -379,6 +405,59 @@ grant execute on function public.cancel_waiting(text, uuid) to anon;
 grant execute on function public.queue_call_history(text, integer) to anon;
 grant execute on function public.queue_call_history_current(text) to anon;
 grant execute on function public.reset_today(text) to anon;
+
+-- One browser/device owns announcement playback at a time.
+create table public.queue_audio_lease (
+  singleton boolean primary key default true check (singleton),
+  owner_token uuid,
+  expires_at timestamptz not null default '-infinity'
+);
+alter table public.queue_audio_lease enable row level security;
+revoke all on public.queue_audio_lease from public, anon, authenticated;
+
+create function public.claim_queue_audio_lease(p_owner uuid, p_ttl_seconds integer default 30)
+returns boolean
+language plpgsql security definer set search_path = '' as $$
+declare claimed boolean;
+begin
+  if p_owner is null then return false; end if;
+  insert into public.queue_audio_lease as lease (singleton, owner_token, expires_at)
+    values (true, p_owner, pg_catalog.clock_timestamp() + pg_catalog.make_interval(secs => least(greatest(p_ttl_seconds, 10), 60)))
+  on conflict (singleton) do update
+    set owner_token = excluded.owner_token, expires_at = excluded.expires_at
+    where lease.expires_at <= pg_catalog.clock_timestamp() or lease.owner_token = excluded.owner_token
+  returning owner_token = p_owner into claimed;
+  return coalesce(claimed, false);
+end;
+$$;
+
+create function public.renew_queue_audio_lease(p_owner uuid, p_ttl_seconds integer default 30)
+returns boolean
+language plpgsql security definer set search_path = '' as $$
+begin
+  update public.queue_audio_lease
+    set expires_at = pg_catalog.clock_timestamp() + pg_catalog.make_interval(secs => least(greatest(p_ttl_seconds, 10), 60))
+    where singleton and owner_token = p_owner and expires_at > pg_catalog.clock_timestamp();
+  return found;
+end;
+$$;
+
+create function public.release_queue_audio_lease(p_owner uuid)
+returns boolean
+language plpgsql security definer set search_path = '' as $$
+begin
+  update public.queue_audio_lease set owner_token = null, expires_at = pg_catalog.clock_timestamp()
+    where singleton and owner_token = p_owner;
+  return found;
+end;
+$$;
+
+revoke all on function public.claim_queue_audio_lease(uuid, integer) from public, anon, authenticated;
+revoke all on function public.renew_queue_audio_lease(uuid, integer) from public, anon, authenticated;
+revoke all on function public.release_queue_audio_lease(uuid) from public, anon, authenticated;
+grant execute on function public.claim_queue_audio_lease(uuid, integer) to service_role;
+grant execute on function public.renew_queue_audio_lease(uuid, integer) to service_role;
+grant execute on function public.release_queue_audio_lease(uuid) to service_role;
 
 -- REALTIME SETUP (run on Supabase; excluded only by local PGlite tests).
 alter table public.queues replica identity full;
