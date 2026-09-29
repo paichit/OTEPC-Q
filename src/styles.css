@@ -64,7 +64,7 @@ nav { display: flex; gap: 5px; }
 .prototype-display-current h1 { font-size: clamp(29px, 3vw, 54px); font-weight: 600; color: #6b7280; }
 .prototype-current-number { font-size: clamp(110px, 15vw, 250px); font-weight: 700; line-height: 1.3; letter-spacing: -.04em; max-width: 100%; overflow-wrap: anywhere; }
 .prototype-current-number.new-call { animation: prototypePulse .8s ease-in-out 3; }
-@keyframes prototypePulse { 0%,100% { transform: scale(1); text-shadow: none; } 50% { transform: scale(1.055); text-shadow: 0 0 24px var(--pulse-color), 0 0 65px var(--pulse-color), 0 0 110px var(--pulse-color); } }
+@keyframes prototypePulse { 0%,100% { text-shadow: 0 0 0 transparent; } 50% { text-shadow: 0 0 24px var(--pulse-color), 0 0 65px var(--pulse-color), 0 0 110px var(--pulse-color); } }
 .fullscreen-button { position: absolute; top: 20px; left: 20px; display: grid; place-items: center; width: 48px; height: 48px; color: white; background: #374151b3; border: 0; border-radius: 50%; box-shadow: 0 4px 14px #0002; }
 .prototype-display-side { display: flex; flex-direction: column; min-width: 0; background: white; }
 .prototype-waiting-total { text-align: center; padding: 21px; }
