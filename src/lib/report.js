@@ -14,7 +14,7 @@ function csvCell(value) {
 
 export function reportTable(rows, group = null, groups = defaultGroups) {
   const selected = group ? rows.filter(row => row.service_group === group) : rows;
-  const columns = ['วันที่คิว', 'หมายเลขคิว', 'กลุ่มบริการ', 'รายการ', 'วันเวลา'];
+  const columns = ['วันที่คิว', 'หมายเลขคิว', 'กลุ่ม', 'รายการ', 'วันเวลา'];
   const data = selected.map(row => [
     row.queue_date, namedQueue(row, groups).queue_number, groups[row.service_group] || row.service_group,
     eventLabels[row.event_kind] || row.event_kind,

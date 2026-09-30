@@ -190,7 +190,7 @@ begin
   select * into result from public.queues where request_id = p_request_id;
   if found then
     if result.queue_date <> d or result.service_group <> p_group then
-      raise exception 'คำขอนี้หมดอายุหรือเป็นของกลุ่มบริการอื่น กรุณาเริ่มรับคิวใหม่';
+      raise exception 'คำขอนี้หมดอายุหรือเป็นของกลุ่มอื่น กรุณาเริ่มรับคิวใหม่';
     end if;
     return result;
   end if;

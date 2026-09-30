@@ -123,7 +123,7 @@ codex mcp login supabase_otepc_q
 Schema อ้างอิงอยู่ที่ `D:\Project\OTEPC-Q\supabase\schema.sql`
 
 - ตาราง `public.queues` มี `id`, `created_at`, `queue_date`, `queue_number`, `service_group`, `counter_number`, `status`, `called_at`, `cancelled_at`, `updated_at`, `request_id`
-- สถานะมี `waiting`, `calling`, `completed`, `skipped` (ค่าเดิม), `cancelled`; กลุ่มบริการมี `A`, `B`
+- สถานะมี `waiting`, `calling`, `completed`, `skipped` (ค่าเดิม), `cancelled`; กลุ่มมี `A`, `B`
 - มีตาราง `public.queue_call_events` สำหรับประวัติเรียกซ้ำ และ `public.staff_accounts`/`public.staff_sessions` สำหรับชื่อผู้ใช้กับ session เจ้าหน้าที่ โดยไม่มีอีเมล
 - มี unique constraint สำหรับเลขคิวต่อวันและ `request_id` รวมถึง index ที่ให้มีคิว `calling` ได้หนึ่งคิวต่อวัน เพราะปัจจุบันมีจุดเรียกคิวเดียว
 - RPC คือ `issue_queue`, `queue_snapshot`, `staff_login`, `staff_session`, `staff_logout`, `call_next`, `recall_current`, `cancel_waiting`, `queue_call_history`, `reset_today`; ไม่มี `skip_queue`
