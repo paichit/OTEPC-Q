@@ -1,5 +1,61 @@
 import { test, expect } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
+
+test('shared group names and typed HEX propagate to tickets display history and reports', async ({ page }) => {
+  let names = { A: 'กลุ่มทั่วไป', B: 'กลุ่มประสบการณ์' };
+  let saves = 0;
+  const queues = [{ id: 'q1', service_group: 'A', queue_number: 'กลุ่มทั่วไป001', status: 'calling', queue_date: '2026-09-30', called_at: '2026-09-30T02:00:00Z', created_at: '2026-09-30T02:00:00Z' }];
+  await page.addInitScript(() => {
+    sessionStorage.setItem('otepc-staff-token', 'a'.repeat(64));
+    localStorage.setItem('otepc-settings', JSON.stringify({ sound: false }));
+  });
+  await page.route('https://queue-test.supabase.co/rest/v1/rpc/**', route => {
+    const name = route.request().url().split('/').at(-1);
+    if (name === 'queue_snapshot') return route.fulfill({ json: { queues, group_names: names } });
+    if (name === 'set_queue_group_names') {
+      saves++;
+      const body = route.request().postDataJSON();
+      names = { A: body.p_name_a, B: body.p_name_b };
+      return route.fulfill({ json: names });
+    }
+    if (name === 'issue_queue') return route.fulfill({ json: { service_group: 'B', queue_number: 'กลุ่มประสบการณ์002', queue_date: '2026-09-30', created_at: '2026-09-30T02:00:00Z' } });
+    if (name === 'staff_session') return route.fulfill({ json: { username: 'staff01' } });
+    if (name === 'queue_call_history') return route.fulfill({ json: [{ queue_id: 'q1', queue_number: 'กลุ่มทั่วไป001', queue_date: '2026-09-30', call_count: 1, events: [] }] });
+    if (name === 'queue_report') return route.fulfill({ json: [{ service_group: 'A', queue_number: 'กลุ่มทั่วไป001', queue_date: '2026-09-30', event_kind: 'initial' }] });
+    return route.fulfill({ json: null });
+  });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'ตั้งค่าระบบ', exact: true }).click();
+  await page.getByLabel('ชื่อกลุ่มที่ 1', { exact: true }).fill('ผู้สมัครทั่วไป');
+  await page.getByLabel('ชื่อกลุ่มที่ 2', { exact: true }).fill('ผู้สมัครประสบการณ์');
+  await page.getByLabel('รหัส HEX สีผู้สมัครทั่วไป', { exact: true }).fill('BAD');
+  await page.getByRole('button', { name: 'บันทึกการตั้งค่า' }).click();
+  expect(saves).toBe(0);
+  await page.getByLabel('รหัส HEX สีผู้สมัครทั่วไป', { exact: true }).fill('ABCDEF');
+  await page.getByRole('button', { name: 'บันทึกการตั้งค่า' }).click();
+  await expect(page.getByText('บันทึกการตั้งค่าแล้ว')).toBeVisible();
+  expect(saves).toBe(1);
+  await page.getByRole('button', { name: 'รับบัตรคิว', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'รับคิวผู้สมัครทั่วไป' })).toHaveCSS('background-color', 'rgb(171, 205, 239)');
+  await page.getByRole('button', { name: 'รับคิวผู้สมัครประสบการณ์' }).click();
+  await expect(page.getByRole('dialog')).toContainText('ผู้สมัครประสบการณ์002');
+  await page.getByRole('button', { name: 'ปิดหน้าต่าง' }).click();
+  await page.getByRole('button', { name: 'จอแสดงคิว', exact: true }).click();
+  await page.getByRole('button', { name: 'เริ่มระบบและเปิดเสียง' }).click();
+  await expect(page.locator('.prototype-current-number')).toHaveText('ผู้สมัครทั่วไป001');
+  await page.getByRole('button', { name: 'จัดการคิว', exact: true }).click();
+  await page.getByRole('button', { name: 'ประวัติการเรียก', exact: true }).click();
+  await expect(page.getByRole('dialog')).toContainText('ผู้สมัครทั่วไป001');
+  await page.getByRole('button', { name: 'ปิดหน้าต่าง' }).click();
+  await page.getByRole('button', { name: 'ส่งออกรายงาน' }).click();
+  await page.getByLabel('รูปแบบไฟล์').selectOption('csv');
+  const downloading = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'เฉพาะผู้สมัครทั่วไป' }).click();
+  const report = await downloading;
+  expect(await readFile(await report.path(), 'utf8')).toContain('ผู้สมัครทั่วไป001');
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'รับคิวผู้สมัครประสบการณ์' })).toBeVisible();
+});
 test('starting the queue display requests and plays spoken confirmation', async ({ page }) => {
   await page.addInitScript(() => {
     window.startupPlayCount = 0;
@@ -194,14 +250,14 @@ test('staff login, next, reset confirmation and API error modal', async ({ page 
   await page.getByRole('button', { name: 'จัดการคิว', exact: true }).click();
   await expect(page.locator('.page-heading-account')).toContainText('STAFF WORKSPACE · staff01');
   await page.getByRole('button', { name: 'เรียกคิวถัดไป', exact: true }).click();
-  await expect(page.locator('.current-counter strong')).toHaveText('A001');
+  await expect(page.locator('.current-counter strong')).toHaveText('กลุ่มทั่วไป001');
   await page.getByRole('button', { name: 'เรียกคิวถัดไป', exact: true }).click();
-  await expect(page.locator('.current-counter strong')).toHaveText('A002');
+  await expect(page.locator('.current-counter strong')).toHaveText('กลุ่มทั่วไป002');
   await page.getByRole('button', { name: 'เรียกซ้ำ', exact: true }).click();
   await expect(page.getByText('เรียกแล้ว 2 ครั้ง')).toBeVisible();
   expect(recalls).toBe(1);
   await page.getByRole('button', { name: 'ยกเลิกคิว', exact: true }).click();
-  await expect(page.getByRole('dialog')).toContainText('A003');
+  await expect(page.getByRole('dialog')).toContainText('กลุ่มทั่วไป003');
   await page.getByRole('button', { name: 'ยืนยันยกเลิก' }).click();
   await expect(page.getByText('ยกเลิกแล้ว')).toBeVisible();
   await expect(page.locator('.queue-row-a').first()).toHaveCSS('background-color', 'rgb(186, 255, 223)');
@@ -229,7 +285,7 @@ test('staff login, next, reset confirmation and API error modal', async ({ page 
   await page.getByRole('button', { name: 'ข้อมูลรวมทุกกลุ่ม' }).click();
   const report = await downloadPromise;
   expect(report.suggestedFilename()).toMatch(/otepc-queue-report-all.*\.csv$/);
-  expect(await readFile(await report.path(), 'utf8')).toContain('A003');
+  expect(await readFile(await report.path(), 'utf8')).toContain('กลุ่มทั่วไป003');
   await page.getByLabel('รูปแบบไฟล์').selectOption('xlsx');
   const excelDownload = page.waitForEvent('download');
   await page.getByRole('button', { name: 'เฉพาะกลุ่มทั่วไป' }).click();
@@ -244,7 +300,7 @@ test('staff login, next, reset confirmation and API error modal', async ({ page 
   expect((await readFile(await pdfReport.path())).subarray(0, 4).toString()).toBe('%PDF');
   await page.getByRole('button', { name: 'ปิดหน้าต่าง' }).click();
   await page.getByRole('button', { name: 'คืนคิวที่ยกเลิก' }).click();
-  await expect(page.getByRole('dialog')).toContainText('A003');
+  await expect(page.getByRole('dialog')).toContainText('กลุ่มทั่วไป003');
   await page.getByRole('dialog').getByRole('button', { name: 'คืนคิว', exact: true }).click();
   await page.getByRole('button', { name: 'ยืนยันคืนคิว' }).click();
   await expect(page.getByText('รอเข้ารับเรียกคิว')).toBeVisible();

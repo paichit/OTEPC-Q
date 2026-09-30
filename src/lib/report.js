@@ -1,4 +1,4 @@
-import { groups } from './queue.js';
+import { defaultGroups, namedQueue } from './groups.js';
 
 const eventLabels = {
   issued: 'รับคิว', initial: 'เรียกคิว', recall: 'เรียกซ้ำ',
@@ -12,17 +12,17 @@ function csvCell(value) {
   return `"${safe.replaceAll('"', '""')}"`;
 }
 
-export function reportTable(rows, group = null) {
+export function reportTable(rows, group = null, groups = defaultGroups) {
   const selected = group ? rows.filter(row => row.service_group === group) : rows;
   const columns = ['วันที่คิว', 'หมายเลขคิว', 'กลุ่มบริการ', 'รายการ', 'วันเวลา'];
   const data = selected.map(row => [
-    row.queue_date, row.queue_number, groups[row.service_group] || row.service_group,
+    row.queue_date, namedQueue(row, groups).queue_number, groups[row.service_group] || row.service_group,
     eventLabels[row.event_kind] || row.event_kind,
     row.event_at ? new Intl.DateTimeFormat('th-TH', { timeZone: 'Asia/Bangkok', dateStyle: 'short', timeStyle: 'medium' }).format(new Date(row.event_at)) : '',
   ]);
   return [columns, ...data];
 }
 
-export function reportCsv(rows, group = null) {
-  return `\ufeff${reportTable(rows, group).map(line => line.map(csvCell).join(',')).join('\r\n')}\r\n`;
+export function reportCsv(rows, group = null, groups = defaultGroups) {
+  return `\ufeff${reportTable(rows, group, groups).map(line => line.map(csvCell).join(',')).join('\r\n')}\r\n`;
 }

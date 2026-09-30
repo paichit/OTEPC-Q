@@ -1,7 +1,9 @@
+import { defaultGroups, groupLabels, namedQueue } from './groups.js';
 import { cloudTtsPreference } from '../services/cloudTts.js';
 
-export const groups = { A: 'กลุ่มทั่วไป', B: 'กลุ่มประสบการณ์' };
+export const groups = defaultGroups;
 export const defaults = {
+  groupNameA: groups.A, groupNameB: groups.B,
   sound: true,
   voice: cloudTtsPreference,
   ttsRate: 0.75,
@@ -20,6 +22,8 @@ export function normalizeSettings(value) {
   const oldMarquee = 'ยินดีต้อนรับ • กรุณาเตรียมเอกสารให้พร้อม และรอเรียกหมายเลขคิวของท่าน • ขอบคุณที่ใช้บริการ';
   const announcement = typeof v.announcement === 'string' ? v.announcement.trim() : '';
   return {
+    groupNameA: typeof v.groupNameA === 'string' && v.groupNameA.trim() ? v.groupNameA.trim().slice(0, 40) : defaults.groupNameA,
+    groupNameB: typeof v.groupNameB === 'string' && v.groupNameB.trim() ? v.groupNameB.trim().slice(0, 40) : defaults.groupNameB,
     sound: typeof v.sound === 'boolean' ? v.sound : defaults.sound,
     voice: defaults.voice,
     ttsRate: Number.isFinite(Number(v.ttsRate)) ? Math.min(1.5, Math.max(0.5, Number(v.ttsRate))) : defaults.ttsRate,
@@ -39,11 +43,11 @@ export function readSettings() {
   try { return normalizeSettings(JSON.parse(localStorage.getItem('otepc-settings'))); }
   catch { return { ...defaults }; }
 }
-export function announcementText(template, queue) {
-  const match = queue.queue_number.match(/^(กลุ่มทั่วไป|กลุ่มประสบการณ์|A|B)(\d{3,})$/);
-  const spoken = match
-    ? `${match[1] === 'A' ? groups.A : match[1] === 'B' ? groups.B : match[1]} ${match[2].split('').join(' ')}`
-    : queue.queue_number;
+export function announcementText(template, queue, settings = {}) {
+  const named = namedQueue(queue, groupLabels(settings));
+  const digits = (named.canonical_queue_number || named.queue_number).match(/\d{3,}$/)?.[0];
+  const name = groupLabels(settings)[named.service_group];
+  const spoken = digits && name ? `${name} ${digits.split('').join(' ')}` : named.queue_number;
   return template.replaceAll('{q}', spoken).replaceAll('{counter}', 'จุดบริการหลัก');
 }
 export function bangkokDate(now = new Date()) {

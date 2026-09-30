@@ -1,10 +1,10 @@
 import ExcelJS from 'exceljs';
 import { reportTable } from './report.js';
 
-export async function reportXlsx(rows, group) {
+export async function reportXlsx(rows, group, groups) {
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet('รายงานคิว');
-  const table = reportTable(rows, group);
+  const table = reportTable(rows, group, groups);
   table.forEach(row => sheet.addRow(row));
   sheet.columns = [{ width: 17 }, { width: 28 }, { width: 24 }, { width: 19 }, { width: 29 }];
   sheet.getRow(1).font = { bold: true, color: { argb: 'FF000000' } };

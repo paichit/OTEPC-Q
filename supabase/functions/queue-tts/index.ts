@@ -2,8 +2,8 @@ import { createClient } from 'npm:@supabase/supabase-js@2';
 
 const bucket = 'queue-tts';
 const voiceName = 'th-TH-Standard-A';
-const cacheVersion = 'v3-template';
-const defaultTemplate = 'ขอเชิญหมายเลขคิว {q} ที่ห้องประชุมค่ะ';
+const cacheVersion = 'v4-group-names';
+const defaultTemplate = 'ขอเชิญบัตรคิว {q} ที่ห้องประชุมค่ะ';
 const cors = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, apikey, content-type',
@@ -11,7 +11,7 @@ const cors = {
 };
 
 type Credentials = { project_id: string; client_email: string; private_key: string };
-type Queue = { queue_number: string; queue_date: string; status: string; called_at: string | null };
+type Queue = { queue_number: string; service_group: 'A' | 'B'; queue_date: string; status: string; called_at: string | null };
 let cachedToken: { value: string; expiresAt: number } | null = null;
 
 function json(status: number, message: string) {
@@ -75,12 +75,11 @@ async function synthesizeText(text: string, credentials: Credentials) {
   return Uint8Array.from(atob(result.audioContent), char => char.charCodeAt(0));
 }
 
-async function synthesize(queueNumber: string, template: string, credentials: Credentials) {
+async function synthesize(queueNumber: string, group: string, template: string, credentials: Credentials) {
   const spokenDigits: Record<string, string> = { '0': 'ศูนย์', '1': 'หนึ่ง', '2': 'สอง', '3': 'สาม', '4': 'สี่', '5': 'ห้า', '6': 'หก', '7': 'เจ็ด', '8': 'แปด', '9': 'เก้า' };
-  const [, prefix, number] = queueNumber.match(/^(กลุ่มทั่วไป|กลุ่มประสบการณ์|A|B)(\d{3,})$/) || [];
+  const number = queueNumber.match(/\d{3,}$/)?.[0];
   if (!number) throw new Error('invalid queue number');
   const digits = number.split('').map(digit => spokenDigits[digit]).join(' ');
-  const group = prefix === 'A' ? 'กลุ่มทั่วไป' : prefix === 'B' ? 'กลุ่มประสบการณ์' : prefix;
   const text = template.replace('{q}', `${group} ${digits}`);
   return synthesizeText(text, credentials);
 }
@@ -139,21 +138,24 @@ Deno.serve(async request => {
   }
 
   const { data: queue, error: queueError } = await db.from('queues')
-    .select('queue_number,queue_date,status,called_at').eq('id', body.queue_id).maybeSingle<Queue>();
+    .select('queue_number,service_group,queue_date,status,called_at').eq('id', body.queue_id).maybeSingle<Queue>();
   if (queueError) return json(503, 'ตรวจสอบคิวไม่สำเร็จ');
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
   if (!queue || queue.status !== 'calling' || queue.queue_date !== today ||
       Date.parse(queue.called_at || '') !== Date.parse(body.called_at) ||
       !/^(กลุ่มทั่วไป|กลุ่มประสบการณ์|A|B)\d{3,}$/.test(queue.queue_number)) return json(404, 'ไม่พบคิวที่กำลังเรียก');
 
-  const hashBytes = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(template)));
+  const { data: groupConfig, error: configError } = await db.from('queue_group_config').select('name_a,name_b').eq('id', 1).single();
+  if (configError || !groupConfig) return json(503, 'โหลดชื่อกลุ่มสำหรับเสียงประกาศไม่สำเร็จ');
+  const groupName = queue.service_group === 'A' ? groupConfig.name_a : groupConfig.name_b;
+  const hashBytes = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${template}\n${groupName}`)));
   const templateHash = Array.from(hashBytes, byte => byte.toString(16).padStart(2, '0')).join('');
   const callKey = encodeURIComponent(queue.called_at || '');
   const path = `${cacheVersion}/${voiceName}/${templateHash}/${queue.queue_date}/${body.queue_id}-${callKey}.mp3`;
   const cached = await db.storage.from(bucket).download(path);
   if (cached.data) return audioResponse(new Uint8Array(await cached.data.arrayBuffer()));
   try {
-    const audio = await synthesize(queue.queue_number, template, credentials);
+    const audio = await synthesize(queue.queue_number, groupName, template, credentials);
     if (audio.byteLength > 262144) return json(502, 'ไฟล์เสียงมีขนาดเกินกำหนด');
     const uploaded = await db.storage.from(bucket).upload(path, audio, { contentType: 'audio/mpeg', upsert: false });
     if (uploaded.error) {

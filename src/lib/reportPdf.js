@@ -1,4 +1,5 @@
 import pdfMake from 'pdfmake/build/pdfmake';
+import { defaultGroups } from './groups.js';
 import { reportTable } from './report.js';
 
 async function fontBase64(name) {
@@ -12,12 +13,12 @@ async function fontBase64(name) {
   return btoa(binary);
 }
 
-export async function reportPdf(rows, group, from, to) {
+export async function reportPdf(rows, group, from, to, groups = defaultGroups) {
   const [regular, bold] = await Promise.all([
     fontBase64('Sarabun-Regular.ttf'), fontBase64('Sarabun-Bold.ttf'),
   ]);
-  const table = reportTable(rows, group);
-  const scope = group === 'A' ? 'กลุ่มทั่วไป' : group === 'B' ? 'กลุ่มประสบการณ์' : 'ทุกกลุ่ม';
+  const table = reportTable(rows, group, groups);
+  const scope = groups[group] || 'ทุกกลุ่ม';
   const period = from || to ? `ช่วงวันที่ ${from || 'เริ่มต้น'} ถึง ${to || 'ปัจจุบัน'}` : 'ทุกวันที่มีบันทึก';
   const definition = {
     pageSize: 'A4', pageOrientation: 'landscape', pageMargins: [28, 38, 28, 38],

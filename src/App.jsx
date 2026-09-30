@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { Ticket, LayoutDashboard, Monitor, Settings as SettingsIcon, ArrowUpRight, WifiOff } from 'lucide-react';
 import CustomerKiosk from './components/CustomerKiosk';
 import BangkokClock from './components/BangkokClock';
@@ -6,6 +6,8 @@ import ViewBoundary from './components/ViewBoundary';
 import Modal from './components/Modal';
 import useQueues from './hooks/useQueues';
 import useAnnouncements from './hooks/useAnnouncements';
+import { groupLabels, namedQueue } from './lib/groups';
+import { staffRpc } from './supabaseClient';
 import { readSettings } from './lib/queue';
 
 const StaffDashboard = lazy(() => import('./components/StaffDashboard'));
@@ -32,13 +34,19 @@ export default function App() {
     window.addEventListener('storage', update);
     return () => window.removeEventListener('storage', update);
   }, []);
-  const saveSettings = useCallback(value => {
+  const sharedNames = data.group_names || groupLabels(settings);
+  const effectiveSettings = { ...settings, groupNameA: sharedNames.A, groupNameB: sharedNames.B };
+  const saveSettings = async value => {
+    if (value.groupNameA !== sharedNames.A || value.groupNameB !== sharedNames.B) {
+      await staffRpc('set_queue_group_names', { p_name_a: value.groupNameA, p_name_b: value.groupNameB });
+      await data.refresh();
+    }
     localStorage.setItem('otepc-settings', JSON.stringify(value));
     setSettings(value);
-  }, []);
+  };
   const waiting = data.queues.filter(q => q.status === 'waiting').length;
   const calling = data.queues.filter(q => q.status === 'calling').length;
-  const props = { queues: data.queues, settings, onError: setError, refresh: data.refresh };
+  const props = { queues: data.queues.map(queue => namedQueue(queue, sharedNames)), settings: effectiveSettings, onError: setError, refresh: data.refresh };
 
   return <div className={`app-shell app-shell-${view}`}>
     <header className="site-header"><div className="header-inner">
@@ -66,7 +74,7 @@ export default function App() {
         {view === 'kiosk' && <CustomerKiosk {...props} />}
         {view === 'staff' && <StaffDashboard {...props} />}
         {view === 'display' && <QueueDisplay {...props} started={speech.started} starting={speech.starting} onStart={speech.start} onStop={speech.stop} speechError={speech.speechError} />}
-        {view === 'settings' && <Settings settings={settings} queues={data.queues} onSave={saveSettings} onError={setError} />}
+        {view === 'settings' && <Settings settings={effectiveSettings} queues={data.queues} onSave={saveSettings} onError={setError} />}
       </Suspense></ViewBoundary>
       {view === 'kiosk' && <div className="summary-strip">
         <div><span className="summary-dot bg-blue-500" /><span>กำลังเรียกคิว</span><strong>{calling}</strong><small>คิว</small></div>

@@ -18,9 +18,18 @@ test('UAT queue names, cancelled restoration order, report access and migration'
     const auditMigration = await readFile(new URL('../supabase/migrate-uat-cancellation-audit.sql', import.meta.url), 'utf8');
     await db.exec(auditMigration);
     await db.exec(auditMigration);
+    const namesMigration = await readFile(new URL('../supabase/migrate-shared-group-names.sql', import.meta.url), 'utf8');
+    await db.exec(namesMigration);
+    await db.exec(namesMigration);
     await db.exec("insert into public.staff_accounts (username, password_hash) values ('staff01', extensions.crypt('safe-test-password-123', extensions.gen_salt('bf', 12)))");
     await db.exec('set role anon');
     const token = (await db.query("select public.staff_login('staff01', 'safe-test-password-123') as login")).rows[0].login.token;
+    await assert.rejects(db.query('select public.set_queue_group_names($1, $2, $3)', ['invalid', 'ผู้สมัครทั่วไป', 'ผู้สมัครประสบการณ์']));
+    await assert.rejects(db.query('select public.set_queue_group_names($1, $2, $3)', [token, 'ซ้ำ', 'ซ้ำ']));
+    await assert.rejects(db.exec("update public.queue_group_config set name_a = 'ชื่อปลอม'"));
+    await db.query('select public.set_queue_group_names($1, $2, $3)', [token, 'ผู้สมัครทั่วไป', 'ผู้สมัครประสบการณ์']);
+    const namedSnapshot = (await db.query('select public.queue_snapshot() as s')).rows[0].s;
+    assert.deepEqual(namedSnapshot.group_names, { A: 'ผู้สมัครทั่วไป', B: 'ผู้สมัครประสบการณ์' });
     const issue = async group => (await db.query('select to_jsonb(public.issue_queue($1, $2)) as q', [group, randomUUID()])).rows[0].q;
     const first = await issue('A');
     const second = await issue('B');

@@ -29,6 +29,7 @@ export default function useQueues(onCall) {
         )) callRef.current(payload.new);
         refresh();
       })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'queue_group_config' }, () => { if (alive) refresh(); })
       .subscribe(status => {
         if (!alive) return;
         setConnection(status === 'SUBSCRIBED' ? 'live' :
