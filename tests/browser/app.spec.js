@@ -41,6 +41,9 @@ test('kiosk, settings, display and responsive layout', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'กรุณากดรับคิว' })).toBeVisible();
   await page.screenshot({ path: 'test-results/kiosk-desktop.png', fullPage: true });
   const a = page.getByRole('button', { name: 'รับคิวกลุ่มทั่วไป' });
+  await expect(a).toHaveCSS('background-color', 'rgb(186, 255, 223)');
+  await expect(a).toHaveCSS('color', 'rgb(0, 0, 0)');
+  await expect(page.getByRole('button', { name: 'รับคิวกลุ่มประสบการณ์' })).toHaveCSS('background-color', 'rgb(170, 246, 131)');
   await a.click();
   await expect(a).toBeDisabled();
   await expect(page.getByRole('dialog')).toBeVisible();
@@ -194,6 +197,8 @@ test('staff login, next, reset confirmation and API error modal', async ({ page 
   await expect(page.getByRole('dialog')).toContainText('A003');
   await page.getByRole('button', { name: 'ยืนยันยกเลิก' }).click();
   await expect(page.getByText('ยกเลิกแล้ว')).toBeVisible();
+  await expect(page.locator('.queue-row-a').first()).toHaveCSS('background-color', 'rgb(186, 255, 223)');
+  await expect(page.locator('.queue-row-a').first()).toHaveCSS('color', 'rgb(0, 0, 0)');
   expect(cancellations).toBe(1);
   await page.getByRole('button', { name: 'ประวัติการเรียก', exact: true }).click();
   await expect(page.getByRole('dialog')).toContainText('เรียก 2 ครั้ง');
@@ -215,6 +220,18 @@ test('staff login, next, reset confirmation and API error modal', async ({ page 
   const report = await downloadPromise;
   expect(report.suggestedFilename()).toMatch(/otepc-queue-report-all.*\.csv$/);
   expect(await readFile(await report.path(), 'utf8')).toContain('A003');
+  await page.getByLabel('รูปแบบไฟล์').selectOption('xlsx');
+  const excelDownload = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'เฉพาะกลุ่มทั่วไป' }).click();
+  const excelReport = await excelDownload;
+  expect(excelReport.suggestedFilename()).toMatch(/-A-.*\.xlsx$/);
+  expect((await readFile(await excelReport.path())).subarray(0, 2).toString()).toBe('PK');
+  await page.getByLabel('รูปแบบไฟล์').selectOption('pdf');
+  const pdfDownload = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'ข้อมูลรวมทุกกลุ่ม' }).click();
+  const pdfReport = await pdfDownload;
+  expect(pdfReport.suggestedFilename()).toMatch(/-all-.*\.pdf$/);
+  expect((await readFile(await pdfReport.path())).subarray(0, 4).toString()).toBe('%PDF');
   await page.getByRole('button', { name: 'ปิดหน้าต่าง' }).click();
   await page.getByRole('button', { name: 'คืนคิวที่ยกเลิก' }).click();
   await expect(page.getByRole('dialog')).toContainText('A003');

@@ -12,7 +12,7 @@ function csvCell(value) {
   return `"${safe.replaceAll('"', '""')}"`;
 }
 
-export function reportCsv(rows, group = null) {
+export function reportTable(rows, group = null) {
   const selected = group ? rows.filter(row => row.service_group === group) : rows;
   const columns = ['วันที่คิว', 'หมายเลขคิว', 'กลุ่มบริการ', 'รายการ', 'วันเวลา'];
   const data = selected.map(row => [
@@ -20,5 +20,9 @@ export function reportCsv(rows, group = null) {
     eventLabels[row.event_kind] || row.event_kind,
     row.event_at ? new Intl.DateTimeFormat('th-TH', { timeZone: 'Asia/Bangkok', dateStyle: 'short', timeStyle: 'medium' }).format(new Date(row.event_at)) : '',
   ]);
-  return `\ufeff${[columns, ...data].map(line => line.map(csvCell).join(',')).join('\r\n')}\r\n`;
+  return [columns, ...data];
+}
+
+export function reportCsv(rows, group = null) {
+  return `\ufeff${reportTable(rows, group).map(line => line.map(csvCell).join(',')).join('\r\n')}\r\n`;
 }

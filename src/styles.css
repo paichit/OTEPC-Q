@@ -198,21 +198,20 @@ nav { display: flex; gap: 5px; }
 .staff-summary-stat { font-size: 15px; font-weight: 500; }
 .staff-summary-stat b { font-size: 19px; font-weight: 700; margin-left: 3px; }
 .staff-summary-total { color: #1d4ed8; }
-.staff-summary-group-a { color: #2563eb; }
-.staff-summary-group-b { color: #159447; }
+.staff-summary-group-a, .staff-summary-group-b { color: #000; }
 .staff-reset-button { white-space: nowrap; }
 .queue-row { border: 0; border-radius: 12px; }
-.queue-row-a { background: #2563eb; color: #fff; }
-.queue-row-b { background: #16a34a; color: #fff; }
-.queue-row-a strong, .queue-row-b strong { color: #fff; }
-.queue-row-a small, .queue-row-b small { color: #e0ecff; }
-.queue-row-a .text-right p, .queue-row-b .text-right p { color: #fff; }
+.queue-row-a { background: #BAFFDF; color: #000; }
+.queue-row-b { background: #AAF683; color: #000; }
+.queue-row-a strong, .queue-row-b strong { color: #000; }
+.queue-row-a small, .queue-row-b small { color: #000; }
+.queue-row-a .text-right p, .queue-row-b .text-right p { color: #000; }
 .queue-row-a .queue-cancel-action, .queue-row-b .queue-cancel-action { color: #ffb454; font-weight: 700; text-decoration-thickness: 2px; text-underline-offset: 3px; }
 .queue-row-a .queue-cancel-action:hover, .queue-row-b .queue-cancel-action:hover { color: #ffd28f; }
 .queue-row-a .queue-cancel-action:focus-visible, .queue-row-b .queue-cancel-action:focus-visible { outline-color: #fff; outline-offset: 2px; }
-.queue-row-cancelled { background: #f97316; color: #fff; }
+.queue-row-cancelled { box-shadow: inset 4px 0 #f97316; }
 .queue-row-cancelled strong, .queue-row-cancelled .text-right p,
-.queue-row-cancelled small, .queue-row-cancelled .queue-cancel-action { color: #fff; }
+.queue-row-cancelled small { color: #000; }
 .view-staff .queue-row .queue-cancel-action { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-height: 34px; padding: 5px 9px; border: 1px solid #ea580c; border-radius: 8px; background: #f97316; color: #fff; font-size: 13px; font-weight: 700; text-decoration: none; box-shadow: 0 2px 5px #7c2d1233; }
 .view-staff .queue-row .queue-cancel-action:hover:not(:disabled) { background: #ea580c; border-color: #c2410c; color: #fff; }
 .view-staff .queue-row .queue-cancel-action:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }

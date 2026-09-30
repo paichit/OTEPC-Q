@@ -17,10 +17,12 @@ test('settings recover from invalid storage and clamp speed', () => {
   assert.equal(normalizeSettings({ voice: 'google-thai', announcement: 'ข้อความเดิม' }).announcement, defaults.announcement);
   assert.equal(normalizeSettings({ announcement: 'เชิญ {q} เข้าห้องประชุม' }).announcement, 'เชิญ {q} เข้าห้องประชุม');
   assert.equal(defaults.ttsRate, 0.75);
-  assert.equal(defaults.colorA, '#A0EADE');
-  assert.equal(defaults.colorB, '#93FF96');
+  assert.equal(defaults.colorA, '#BAFFDF');
+  assert.equal(defaults.colorB, '#AAF683');
   assert.equal(normalizeSettings({ colorA: '#2563eb', colorB: '#15803d' }).colorA, defaults.colorA);
   assert.equal(normalizeSettings({ colorA: '#2563eb', colorB: '#15803d' }).colorB, defaults.colorB);
+  assert.equal(normalizeSettings({ colorA: '#A0EADE', colorB: '#93FF96' }).colorA, defaults.colorA);
+  assert.equal(normalizeSettings({ colorA: '#A0EADE', colorB: '#93FF96' }).colorB, defaults.colorB);
   assert.equal(defaults.marquee, 'สำนักงาน ก.ค.ศ. ยินดีต้อนรับ • กรุณาเตรียมเอกสารให้พร้อม และรอเรียกหมายเลขคิวของท่าน • ขอบคุณค่ะ');
   assert.equal(normalizeSettings({ speed: 999, sound: false, colorA: 'red' }).speed, 60);
   assert.equal(normalizeSettings({ sound: false }).sound, false);
