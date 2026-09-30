@@ -184,6 +184,10 @@ nav { display: flex; gap: 5px; }
 .view-staff .page-heading-action { flex-shrink: 0; }
 .view-staff .page-heading-account { display: flex; align-items: center; justify-content: flex-end; gap: 14px; flex-shrink: 0; }
 .view-staff .page-heading-account .section-label { margin: 0; white-space: nowrap; font-size: 19px; font-weight: 800; letter-spacing: .3px; color: #1e293b; }
+.view-settings .page-heading { align-items: center; }
+.settings-heading-copy { min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 20px; }
+.settings-heading-copy h1 { margin: 0; line-height: 1.25; }
+.settings-heading-copy p { margin: 0; }
 .staff-toolbar { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; }
 .staff-history-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .staff-history-actions button { white-space: nowrap; }

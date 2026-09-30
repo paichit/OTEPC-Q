@@ -12,7 +12,8 @@ test('date boundary uses Bangkok instead of browser time zone', () => {
 test('settings recover from invalid storage and clamp speed', () => {
   assert.deepEqual(normalizeSettings(null), defaults);
   assert.equal(defaults.voice, 'google-cloud-standard-a');
-  assert.equal(defaults.announcement, 'ขอเชิญหมายเลขคิว {q} ที่ห้องประชุมค่ะ');
+  assert.equal(defaults.announcement, 'ขอเชิญบัตรคิว {q} ที่ห้องประชุมค่ะ');
+  assert.equal(normalizeSettings({ announcement: 'ขอเชิญหมายเลขคิว {q} ที่ห้องประชุมค่ะ' }).announcement, defaults.announcement);
   assert.equal(normalizeSettings({ voice: 'google-thai', announcement: 'ข้อความเดิม' }).voice, defaults.voice);
   assert.equal(normalizeSettings({ voice: 'google-thai', announcement: 'ข้อความเดิม' }).announcement, defaults.announcement);
   assert.equal(normalizeSettings({ announcement: 'เชิญ {q} เข้าห้องประชุม' }).announcement, 'เชิญ {q} เข้าห้องประชุม');

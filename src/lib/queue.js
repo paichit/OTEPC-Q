@@ -6,7 +6,7 @@ export const defaults = {
   voice: cloudTtsPreference,
   ttsRate: 0.75,
   ttsVolume: 1,
-  announcement: 'ขอเชิญหมายเลขคิว {q} ที่ห้องประชุมค่ะ',
+  announcement: 'ขอเชิญบัตรคิว {q} ที่ห้องประชุมค่ะ',
   marquee: 'สำนักงาน ก.ค.ศ. ยินดีต้อนรับ • กรุณาเตรียมเอกสารให้พร้อม และรอเรียกหมายเลขคิวของท่าน • ขอบคุณค่ะ',
   speed: 24, colorA: '#BAFFDF', colorB: '#AAF683',
   displayBgA: '#f8fafc', displayBgB: '#f8fafc',
@@ -24,7 +24,9 @@ export function normalizeSettings(value) {
     voice: defaults.voice,
     ttsRate: Number.isFinite(Number(v.ttsRate)) ? Math.min(1.5, Math.max(0.5, Number(v.ttsRate))) : defaults.ttsRate,
     ttsVolume: Number.isFinite(Number(v.ttsVolume)) ? Math.min(1, Math.max(0, Number(v.ttsVolume))) : defaults.ttsVolume,
-    announcement: announcement.length <= 200 && announcement.split('{q}').length === 2 ? announcement : defaults.announcement,
+    announcement: announcement === 'ขอเชิญหมายเลขคิว {q} ที่ห้องประชุมค่ะ'
+      ? defaults.announcement
+      : announcement.length <= 200 && announcement.split('{q}').length === 2 ? announcement : defaults.announcement,
     marquee: typeof v.marquee === 'string' && v.marquee.trim() && v.marquee !== oldMarquee ? v.marquee.slice(0, 500) : defaults.marquee,
     idleMarquee: typeof v.idleMarquee === 'string' && v.idleMarquee.trim() ? v.idleMarquee.slice(0, 500) : defaults.idleMarquee,
     speed: Number.isFinite(Number(v.speed)) ? Math.min(60, Math.max(10, Number(v.speed))) : defaults.speed,

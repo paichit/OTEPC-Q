@@ -53,7 +53,14 @@ test('kiosk, settings, display and responsive layout', async ({ page }) => {
   await page.getByRole('button', { name: 'ปิดหน้าต่าง' }).click();
   await page.getByRole('button', { name: 'ตั้งค่าระบบ', exact: true }).click();
   await expect(page.getByText('Google Cloud — ไทยผู้หญิง Standard-A')).toBeVisible();
-  await expect(page.getByLabel('รูปแบบเสียงประกาศ')).toHaveValue('ขอเชิญหมายเลขคิว {q} ที่ห้องประชุมค่ะ');
+  await expect(page.getByRole('heading', { name: 'ปรับแต่งการจัดการคิว' })).toBeVisible();
+  await expect(page.getByLabel('รูปแบบเสียงประกาศ')).toHaveValue('ขอเชิญบัตรคิว {q} ที่ห้องประชุมค่ะ');
+  expect(await page.locator('.settings-heading-copy').evaluate(element => {
+    const heading = element.querySelector('h1').getBoundingClientRect();
+    const description = element.querySelector('p').getBoundingClientRect();
+    return description.top < heading.bottom;
+  })).toBe(true);
+  await page.screenshot({ path: 'test-results/settings-desktop.png', fullPage: true });
   await page.getByRole('button', { name: 'ทดสอบเสียงบนเครื่องนี้' }).click();
   await expect(page.getByText('กรุณาเรียกคิวหนึ่งหมายเลขก่อนทดสอบเสียง Google Cloud')).toBeVisible();
   await page.getByLabel('ข้อความเมื่อยังไม่มีคิวถูกเรียก').fill('กรุณารอเรียกคิวค่ะ');
@@ -215,6 +222,9 @@ test('staff login, next, reset confirmation and API error modal', async ({ page 
   await expect(page.getByRole('dialog')).toContainText('ทดสอบข้อผิดพลาดจาก API');
   await page.getByRole('button', { name: 'รับทราบ', exact: true }).click();
   await page.getByRole('button', { name: 'ส่งออกรายงาน' }).click();
+  await expect(page.getByLabel('รูปแบบไฟล์')).toHaveValue('xlsx');
+  await expect(page.getByLabel('รูปแบบไฟล์').locator('option')).toHaveText(['Excel (.xlsx)', 'CSV', 'PDF']);
+  await page.getByLabel('รูปแบบไฟล์').selectOption('csv');
   const downloadPromise = page.waitForEvent('download');
   await page.getByRole('button', { name: 'ข้อมูลรวมทุกกลุ่ม' }).click();
   const report = await downloadPromise;
