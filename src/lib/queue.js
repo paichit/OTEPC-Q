@@ -10,7 +10,7 @@ export const defaults = {
   ttsVolume: 1,
   announcement: 'ขอเชิญบัตรคิว {q} ที่ห้องประชุมค่ะ',
   marquee: 'สำนักงาน ก.ค.ศ. ยินดีต้อนรับ • กรุณาเตรียมเอกสารให้พร้อม และรอเรียกหมายเลขคิวของท่าน • ขอบคุณค่ะ',
-  speed: 24, colorA: '#BAFFDF', colorB: '#AAF683',
+  speed: 24, colorA: '#B1F8F2', colorB: '#AAF683',
   displayBgA: '#f8fafc', displayBgB: '#f8fafc',
   displayTextA: '#0f172a', displayTextB: '#0f172a',
   displayPulseA: '#2563eb', displayPulseB: '#16a34a',
@@ -34,7 +34,7 @@ export function normalizeSettings(value) {
     marquee: typeof v.marquee === 'string' && v.marquee.trim() && v.marquee !== oldMarquee ? v.marquee.slice(0, 500) : defaults.marquee,
     idleMarquee: typeof v.idleMarquee === 'string' && v.idleMarquee.trim() ? v.idleMarquee.slice(0, 500) : defaults.idleMarquee,
     speed: Number.isFinite(Number(v.speed)) ? Math.min(60, Math.max(10, Number(v.speed))) : defaults.speed,
-    colorA: /^#[0-9a-f]{6}$/i.test(v.colorA) && !['#2563eb', '#a0eade'].includes(v.colorA.toLowerCase()) ? v.colorA : defaults.colorA,
+    colorA: /^#[0-9a-f]{6}$/i.test(v.colorA) && !['#2563eb', '#a0eade', '#baffdf'].includes(v.colorA.toLowerCase()) ? v.colorA : defaults.colorA,
     colorB: /^#[0-9a-f]{6}$/i.test(v.colorB) && !['#15803d', '#93ff96'].includes(v.colorB.toLowerCase()) ? v.colorB : defaults.colorB,
     ...Object.fromEntries(['displayBgA', 'displayBgB', 'displayTextA', 'displayTextB', 'displayPulseA', 'displayPulseB', 'waitingCardColor', 'marqueeColor'].map(key => [key, /^#[0-9a-f]{6}$/i.test(v[key]) ? v[key] : defaults[key]])),
   };

@@ -82,7 +82,7 @@ export default function App() {
         <button onClick={() => setView('display')}>ดูหน้าจอแสดงคิว <ArrowUpRight size={17} /></button>
       </div>}
     </main>
-    <footer className="site-footer"><span>OTEPC Q <span className="mx-2 text-slate-300">·</span> ทุกคิวสำคัญ ทุกบริการใส่ใจ</span><span>ระบบจัดคิวออนไลน์อัตโนมัติ</span></footer>
+    <footer className="site-footer"><span>OTEPC Q <span className="mx-2 text-slate-300">·</span> powered by กลุ่มเทคโนโลยีและสารสนเทศการบริหารงานบุคคล สำนักงาน ก.ค.ศ.</span><span>ระบบจัดคิวออนไลน์อัตโนมัติ</span></footer>
     {error && <Modal title="ไม่สามารถทำรายการได้" onClose={() => setError('')}>
       <p className="text-slate-500 leading-7 break-words">{error}</p><button className="primary-button w-full mt-6" onClick={() => setError('')}>รับทราบ</button>
     </Modal>}

@@ -97,7 +97,7 @@ test('kiosk, settings, display and responsive layout', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'กรุณากดรับคิว' })).toBeVisible();
   await page.screenshot({ path: 'test-results/kiosk-desktop.png', fullPage: true });
   const a = page.getByRole('button', { name: 'รับคิวกลุ่มทั่วไป' });
-  await expect(a).toHaveCSS('background-color', 'rgb(186, 255, 223)');
+  await expect(a).toHaveCSS('background-color', 'rgb(177, 248, 242)');
   await expect(a).toHaveCSS('color', 'rgb(0, 0, 0)');
   await expect(page.getByRole('button', { name: 'รับคิวกลุ่มประสบการณ์' })).toHaveCSS('background-color', 'rgb(170, 246, 131)');
   await a.click();
@@ -260,7 +260,7 @@ test('staff login, next, reset confirmation and API error modal', async ({ page 
   await expect(page.getByRole('dialog')).toContainText('กลุ่มทั่วไป003');
   await page.getByRole('button', { name: 'ยืนยันยกเลิก' }).click();
   await expect(page.getByText('ยกเลิกแล้ว')).toBeVisible();
-  await expect(page.locator('.queue-row-a').first()).toHaveCSS('background-color', 'rgb(186, 255, 223)');
+  await expect(page.locator('.queue-row-a').first()).toHaveCSS('background-color', 'rgb(177, 248, 242)');
   await expect(page.locator('.queue-row-a').first()).toHaveCSS('color', 'rgb(0, 0, 0)');
   expect(cancellations).toBe(1);
   await page.getByRole('button', { name: 'ประวัติการเรียก', exact: true }).click();

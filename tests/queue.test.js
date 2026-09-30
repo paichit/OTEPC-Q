@@ -18,7 +18,7 @@ test('settings recover from invalid storage and clamp speed', () => {
   assert.equal(normalizeSettings({ voice: 'google-thai', announcement: 'ข้อความเดิม' }).announcement, defaults.announcement);
   assert.equal(normalizeSettings({ announcement: 'เชิญ {q} เข้าห้องประชุม' }).announcement, 'เชิญ {q} เข้าห้องประชุม');
   assert.equal(defaults.ttsRate, 0.75);
-  assert.equal(defaults.colorA, '#BAFFDF');
+  assert.equal(defaults.colorA, '#B1F8F2');
   assert.equal(defaults.colorB, '#AAF683');
   assert.equal(normalizeSettings({ colorA: '#2563eb', colorB: '#15803d' }).colorA, defaults.colorA);
   assert.equal(normalizeSettings({ colorA: '#2563eb', colorB: '#15803d' }).colorB, defaults.colorB);
