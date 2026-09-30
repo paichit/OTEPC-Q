@@ -120,9 +120,10 @@ test('PostgreSQL queue lifecycle, idempotency, date scoping and permissions', as
       const cancellationMigration = await readFile(new URL('../supabase/migrate-current-history-cancellations.sql', import.meta.url), 'utf8');
       await db.exec(cancellationMigration);
       await db.exec(cancellationMigration);
-      const allHistoryCancellationMigration = await readFile(new URL('../supabase/migrate-all-history-cancellations.sql', import.meta.url), 'utf8');
-      await db.exec(allHistoryCancellationMigration);
-      await db.exec(allHistoryCancellationMigration);
+      // Fresh schema already includes all-time cancellations; check the current audit migration instead.
+      const auditMigration = await readFile(new URL('../supabase/migrate-uat-cancellation-audit.sql', import.meta.url), 'utf8');
+      await db.exec(auditMigration);
+      await db.exec(auditMigration);
       await db.exec('set role anon');
       const after = await snapshot();
       assert.equal(after.queues.filter(q => ['completed', 'skipped', 'cancelled'].includes(q.status)).length, 50);

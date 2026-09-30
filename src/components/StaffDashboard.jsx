@@ -11,15 +11,18 @@ const queueDateTime = value => value ? new Intl.DateTimeFormat('th-TH', { timeZo
 
 function HistoryRecord({ record }) {
   const cancelled = record.status === 'cancelled';
+  const restored = record.status === 'restored';
   return <details className="border border-slate-200 rounded-xl p-3">
     <summary className="cursor-pointer flex justify-between gap-3">
       <span><strong>{record.queue_number}</strong> <small className="text-slate-500">{record.queue_date}</small></span>
-      <span className={cancelled ? 'text-orange-600 font-semibold' : 'text-blue-700'}>
-        {cancelled ? 'ยกเลิกคิว' : `เรียก ${record.call_count} ครั้ง`}
+      <span className={cancelled ? 'text-orange-600 font-semibold' : restored ? 'text-emerald-700 font-semibold' : 'text-blue-700'}>
+        {cancelled ? 'ยกเลิกคิว' : restored ? 'คืนคิว' : `เรียก ${record.call_count} ครั้ง`}
       </span>
     </summary>
     {cancelled
       ? <p className="mt-3 text-sm text-orange-700">ยกเลิกเวลา {time(record.cancelled_at)}</p>
+      : restored
+        ? <p className="mt-3 text-sm text-emerald-700">คืนคิวเวลา {time(record.restored_at)} · กลับไปรอท้ายแถวด้วยเลขเดิม</p>
       : <ol className="mt-3 text-sm text-slate-600 space-y-1">{record.events.map((event, index) => <li key={`${event.called_at}-${index}`}>{index + 1}. {event.event_kind === 'recall' ? 'เรียกซ้ำ' : 'เรียกครั้งแรก'} · {time(event.called_at)}</li>)}</ol>}
   </details>;
 }
@@ -115,6 +118,6 @@ export default function StaffDashboard({ queues, refresh, onError }) {
     {restoreQueue && <Modal title={`คืนคิว ${restoreQueue.queue_number}?`} onClose={() => setRestoreQueue(null)} busy={busy}><p className="text-slate-500">คิวนี้จะใช้เลขเดิมและกลับไปรอท้ายแถว หลังคิวที่รออยู่ทั้งหมด</p><div className="flex gap-3 mt-6"><button className="secondary-button flex-1" disabled={busy} onClick={() => setRestoreQueue(null)}>กลับ</button><button className="primary-button flex-1" disabled={busy} onClick={() => run(async () => { await staffRpc('restore_cancelled', { p_queue_id: restoreQueue.id }); setRestoreQueue(null); await refresh(); })}>{busy && <LoaderCircle size={17} className="animate-spin" />} ยืนยันคืนคิว</button></div></Modal>}
     {reportOpen && <Modal title="ส่งออกรายงานคิว" onClose={() => setReportOpen(false)} busy={busy}><p className="text-sm text-slate-500 mb-4">ไฟล์ CSV เปิดใน Excel ได้ เว้นช่วงวันที่ว่างไว้หากต้องการข้อมูลทุกวันที่มีบันทึก</p><div className="grid grid-cols-2 gap-3"><label className="field">ตั้งแต่วันที่<input type="date" value={reportFrom} onChange={e => setReportFrom(e.target.value)} /></label><label className="field">ถึงวันที่<input type="date" value={reportTo} onChange={e => setReportTo(e.target.value)} /></label></div><div className="grid gap-3 mt-5"><button className="primary-button" disabled={busy || Boolean(reportFrom && reportTo && reportFrom > reportTo)} onClick={() => exportReport()}><Download size={17} /> ข้อมูลรวมทุกกลุ่ม</button><button className="secondary-button" disabled={busy || Boolean(reportFrom && reportTo && reportFrom > reportTo)} onClick={() => exportReport('A')}><Download size={17} /> เฉพาะกลุ่มทั่วไป</button><button className="secondary-button" disabled={busy || Boolean(reportFrom && reportTo && reportFrom > reportTo)} onClick={() => exportReport('B')}><Download size={17} /> เฉพาะกลุ่มประสบการณ์</button></div></Modal>}
     {reset && <Modal title="รีเซ็ตคิวของวันนี้?" onClose={() => setReset(false)} busy={busy}><p className="text-slate-500 leading-7">คิวทุกกลุ่มของวันนี้ รวมถึงคิวที่กำลังเรียก จะถูกลบ และเริ่มเลขคิวใหม่ที่ กลุ่มทั่วไป001 / กลุ่มประสบการณ์001 ประวัติการเรียกที่บันทึกไว้ยังดูย้อนหลังได้</p><div className="flex gap-3 mt-6"><button className="secondary-button flex-1" disabled={busy} onClick={() => setReset(false)}>กลับ</button><button className="danger-button flex-1" disabled={busy} onClick={() => run(async () => { await staffRpc('reset_today'); setReset(false); await refresh(); })}>{busy && <LoaderCircle size={17} className="animate-spin" />} ยืนยันรีเซ็ต</button></div></Modal>}
-    {history && <Modal title={historyScope === 'current' ? 'ประวัติการเรียกและยกเลิก · รอบปัจจุบัน' : 'ประวัติการเรียกทั้งหมด'} onClose={() => setHistory(null)}><p className="text-sm text-slate-500 mb-4">{historyScope === 'current' ? 'แสดงคิวที่เรียกและยกเลิกในรอบปัจจุบัน รอบที่รีเซ็ตไปแล้วจะไม่แสดงที่นี่' : 'รวมประวัติทุกช่วงเวลา ทั้งรอบปัจจุบันและรอบก่อนหน้า'}</p><div className="max-h-[55vh] overflow-auto space-y-3">{history.length ? history.map(q => <HistoryRecord key={q.queue_id} record={q} />) : <p className="empty-state">ยังไม่มีประวัติการเรียก</p>}</div></Modal>}
+    {history && <Modal title={historyScope === 'current' ? 'ประวัติการเรียกและยกเลิก · รอบปัจจุบัน' : 'ประวัติการเรียกทั้งหมด'} onClose={() => setHistory(null)}><p className="text-sm text-slate-500 mb-4">{historyScope === 'current' ? 'แสดงคิวที่เรียกและยกเลิกในรอบปัจจุบัน รอบที่รีเซ็ตไปแล้วจะไม่แสดงที่นี่' : 'รวมประวัติทุกช่วงเวลา ทั้งรอบปัจจุบันและรอบก่อนหน้า'}</p><div className="max-h-[55vh] overflow-auto space-y-3">{history.length ? history.map(q => <HistoryRecord key={`${q.queue_id}-${q.status}-${q.cancelled_at || q.restored_at || q.last_called_at}`} record={q} />) : <p className="empty-state">ยังไม่มีประวัติการเรียก</p>}</div></Modal>}
   </>;
 }

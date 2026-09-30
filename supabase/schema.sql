@@ -60,13 +60,15 @@ revoke all on public.queue_call_events from anon, authenticated;
 
 -- Immutable cancellation snapshots survive resets just like call events.
 create table public.queue_cancel_events (
-  queue_id uuid primary key,
+  id bigint generated always as identity primary key,
+  queue_id uuid not null,
   queue_date date not null,
   queue_number text not null,
   service_group text not null check (service_group in ('A', 'B')),
   cancelled_at timestamptz not null
 );
 create index queue_cancel_events_recent on public.queue_cancel_events (cancelled_at desc, queue_id);
+create index queue_cancel_events_queue on public.queue_cancel_events (queue_id, cancelled_at desc);
 alter table public.queue_cancel_events enable row level security;
 revoke all on public.queue_cancel_events from anon, authenticated;
 
@@ -261,8 +263,7 @@ begin
     where id = p_queue_id and queue_date = d and status = 'waiting' returning * into result;
   if not found then raise exception 'คิวนี้ไม่ได้อยู่ในรายการรอแล้ว กรุณาโหลดข้อมูลอีกครั้ง'; end if;
   insert into public.queue_cancel_events (queue_id, queue_date, queue_number, service_group, cancelled_at)
-    values (result.id, result.queue_date, result.queue_number, result.service_group, result.cancelled_at)
-    on conflict (queue_id) do nothing;
+    values (result.id, result.queue_date, result.queue_number, result.service_group, result.cancelled_at);
   return result;
 end;
 $$;
@@ -348,9 +349,16 @@ begin
       'cancelled_at', c.cancelled_at, 'events', '[]'::jsonb
     ) as item
     from public.queue_cancel_events c
+  ), restored as (
+    select r.restored_at as activity_at, jsonb_build_object(
+      'queue_id', r.queue_id, 'queue_date', r.queue_date, 'queue_number', r.queue_number,
+      'status', 'restored', 'call_count', 0, 'restored_at', r.restored_at,
+      'events', '[]'::jsonb
+    ) as item
+    from public.queue_restore_events r
   )
   select coalesce(jsonb_agg(item order by activity_at desc), '[]'::jsonb) into result
-  from (select * from called union all select * from cancelled) entries;
+  from (select * from called union all select * from cancelled union all select * from restored) entries;
   return result;
 end;
 $$;
@@ -384,21 +392,31 @@ begin
       from public.queue_call_events where queue_id = r.queue_id
     ) count_data on true
   ), cancelled as (
-    select q.id as queue_id, coalesce(q.cancelled_at, q.updated_at) as activity_at,
+    select c.queue_id, c.cancelled_at as activity_at,
       jsonb_build_object(
-        'queue_id', q.id, 'queue_date', q.queue_date, 'queue_number', q.queue_number,
+        'queue_id', c.queue_id, 'queue_date', c.queue_date, 'queue_number', c.queue_number,
         'status', 'cancelled', 'call_count', 0, 'recall_count', 0,
-        'cancelled_at', coalesce(q.cancelled_at, q.updated_at), 'events', '[]'::jsonb
+        'cancelled_at', c.cancelled_at, 'events', '[]'::jsonb
       ) as item
-    from public.queues q
+    from public.queue_cancel_events c join public.queues q on q.id = c.queue_id
     where q.queue_date = (now() at time zone 'Asia/Bangkok')::date
-      and q.status = 'cancelled'
+  ), restored as (
+    select r.queue_id, r.restored_at as activity_at,
+      jsonb_build_object(
+        'queue_id', r.queue_id, 'queue_date', r.queue_date, 'queue_number', r.queue_number,
+        'status', 'restored', 'call_count', 0, 'restored_at', r.restored_at,
+        'events', '[]'::jsonb
+      ) as item
+    from public.queue_restore_events r join public.queues q on q.id = r.queue_id
+    where q.queue_date = (now() at time zone 'Asia/Bangkok')::date
   )
   select coalesce(jsonb_agg(item order by activity_at desc, queue_id), '[]'::jsonb)
     into result from (
       select * from called
       union all
       select * from cancelled
+      union all
+      select * from restored
     ) entries;
   return result;
 end;

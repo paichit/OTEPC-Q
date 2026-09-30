@@ -162,7 +162,7 @@ Unit tests ตรวจข้อความเสียง เขตเวล�
 ประวัติการเรียกเก็บแยกจากตารางคิวและไม่ถูกลบเมื่อรีเซ็ต หากย้ายจากระบบรุ่นก่อน migration จะสร้างเหตุการณ์เรียกครั้งแรกจาก called_at เท่าที่มีอยู่ แต่ไม่สามารถกู้จำนวนการเรียกซ้ำในอดีตที่ไม่เคยบันทึกได้
 
 
-การเปลี่ยนเลขคิวเป็นชื่อกลุ่ม การคืนคิว และรายงาน UAT **ต้องใช้** [`supabase/migrate-uat-groups-and-restore.sql`](supabase/migrate-uat-groups-and-restore.sql) บนฐานเดิม คิวที่ออกก่อน migration ยังใช้เลข A/B เดิม ส่วนคิวใหม่ใช้ชื่อกลุ่ม ระบบจะนับเลขต่อจากคิวเก่าในวันเดียวกัน รายงานเก็บเหตุการณ์ออกคิว เรียก ยกเลิก และคืนคิวต่อจากนี้แม้รีเซ็ตคิวแล้ว และ backfill การออกคิวจากแถวที่ยังอยู่ในฐานก่อน migration; คิวที่ถูกรีเซ็ตจนลบไปก่อนหน้านี้ไม่สามารถกู้เหตุการณ์รับคิวที่ไม่เคยบันทึกได้ การตั้งค่าสีใหม่อยู่ใน localStorage ของแต่ละเครื่อง โดยค่าสีน้ำเงิน/เขียวเริ่มต้นเก่าจะเปลี่ยนเป็นสีพาสเทลเมื่อเปิดเว็บรุ่นใหม่
+การเปลี่ยนเลขคิวเป็นชื่อกลุ่ม การคืนคิว และรายงาน UAT **ต้องใช้** [`supabase/migrate-uat-groups-and-restore.sql`](supabase/migrate-uat-groups-and-restore.sql) ตามด้วย [`supabase/migrate-uat-cancellation-audit.sql`](supabase/migrate-uat-cancellation-audit.sql) บนฐานเดิม คิวที่ออกก่อน migration ยังใช้เลข A/B เดิม ส่วนคิวใหม่ใช้ชื่อกลุ่ม ระบบจะนับเลขต่อจากคิวเก่าในวันเดียวกัน รายงานเก็บเหตุการณ์ออกคิว เรียก ยกเลิก และคืนคิวต่อจากนี้แม้รีเซ็ตคิวแล้ว และ backfill การออกคิวจากแถวที่ยังอยู่ในฐานก่อน migration; คิวที่ถูกรีเซ็ตจนลบไปก่อนหน้านี้ไม่สามารถกู้เหตุการณ์รับคิวที่ไม่เคยบันทึกได้ การตั้งค่าสีใหม่อยู่ใน localStorage ของแต่ละเครื่อง โดยค่าสีน้ำเงิน/เขียวเริ่มต้นเก่าจะเปลี่ยนเป็นสีพาสเทลเมื่อเปิดเว็บรุ่นใหม่
 
 ## โครงสร้างและประสิทธิภาพรุ่นล่าสุด
 
@@ -208,6 +208,7 @@ npx supabase db query --linked --project-ref pvuhrnvyhyxffudqjams --file supabas
 npx supabase functions deploy queue-audio-lock --project-ref pvuhrnvyhyxffudqjams
 npx supabase functions deploy queue-tts --project-ref pvuhrnvyhyxffudqjams
 npx supabase db query --linked --project-ref pvuhrnvyhyxffudqjams --file supabase/migrate-uat-groups-and-restore.sql
+npx supabase db query --linked --project-ref pvuhrnvyhyxffudqjams --file supabase/migrate-uat-cancellation-audit.sql
 ```
 
 คำสั่ง migration ใช้กับฐานข้อมูล OTEPC Q ที่มีอยู่แล้วและควรตรวจไฟล์ SQL ก่อนรันทุกครั้ง สามารถใช้ Supabase Dashboard → SQL Editor แล้ววางเนื้อหาไฟล์ migration แทน CLI ได้เช่นกัน **ห้ามรัน `supabase/schema.sql` ซ้ำบนโปรเจกต์เดิม** เพราะเป็นสคริปต์สร้างฐานข้อมูลใหม่ทั้งชุด Secret ของ Google Cloud ให้ตั้งใน Supabase → Edge Function Secrets ตาม [คู่มือ Cloud TTS](docs/google-cloud-tts.md); อย่าใส่ JSON key หรือ service-role key ใน `.env.local`, README หรือ Git

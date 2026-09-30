@@ -15,6 +15,9 @@ test('UAT queue names, cancelled restoration order, report access and migration'
     const migration = await readFile(new URL('../supabase/migrate-uat-groups-and-restore.sql', import.meta.url), 'utf8');
     await db.exec(migration);
     await db.exec(migration);
+    const auditMigration = await readFile(new URL('../supabase/migrate-uat-cancellation-audit.sql', import.meta.url), 'utf8');
+    await db.exec(auditMigration);
+    await db.exec(auditMigration);
     await db.exec("insert into public.staff_accounts (username, password_hash) values ('staff01', extensions.crypt('safe-test-password-123', extensions.gen_salt('bf', 12)))");
     await db.exec('set role anon');
     const token = (await db.query("select public.staff_login('staff01', 'safe-test-password-123') as login")).rows[0].login.token;
@@ -32,6 +35,8 @@ test('UAT queue names, cancelled restoration order, report access and migration'
     assert.equal(restored.status, 'waiting');
     assert.ok(restored.created_at > third.created_at);
     await assert.rejects(db.query('select public.restore_cancelled($1, $2)', [token, first.id]), /คืนคิวนี้ไม่ได้/);
+    await db.query('select public.cancel_waiting($1, $2)', [token, first.id]);
+    await db.query('select public.restore_cancelled($1, $2)', [token, first.id]);
     const call = async expected => (await db.query('select to_jsonb(public.call_next($1, $2)) as q', [token, expected])).rows[0].q;
     assert.equal((await call(null)).id, second.id);
     assert.equal((await call(second.id)).id, third.id);
@@ -40,6 +45,10 @@ test('UAT queue names, cancelled restoration order, report access and migration'
     assert.ok(report.some(row => row.queue_number === first.queue_number && row.event_kind === 'restored'));
     assert.ok(report.some(row => row.queue_number === first.queue_number && row.event_kind === 'cancelled'));
     assert.ok(report.some(row => row.queue_number === first.queue_number && row.event_kind === 'initial'));
+    assert.equal(report.filter(row => row.queue_number === first.queue_number && row.event_kind === 'cancelled').length, 2);
+    assert.equal(report.filter(row => row.queue_number === first.queue_number && row.event_kind === 'restored').length, 2);
+    const currentHistory = (await db.query('select public.queue_call_history_current($1) as h', [token])).rows[0].h;
+    assert.equal(currentHistory.filter(row => row.queue_id === first.id && row.status === 'cancelled').length, 2);
     const csv = reportCsv(report, 'A');
     assert.ok(csv.startsWith('\ufeff'));
     assert.ok(csv.includes('กลุ่มทั่วไป001'));
