@@ -77,8 +77,10 @@ async function synthesizeText(text: string, credentials: Credentials) {
 
 async function synthesize(queueNumber: string, template: string, credentials: Credentials) {
   const spokenDigits: Record<string, string> = { '0': 'ศูนย์', '1': 'หนึ่ง', '2': 'สอง', '3': 'สาม', '4': 'สี่', '5': 'ห้า', '6': 'หก', '7': 'เจ็ด', '8': 'แปด', '9': 'เก้า' };
-  const digits = queueNumber.slice(1).split('').map(digit => spokenDigits[digit]).join(' ');
-  const group = queueNumber[0] === 'A' ? 'เอ' : 'บี';
+  const [, prefix, number] = queueNumber.match(/^(กลุ่มทั่วไป|กลุ่มประสบการณ์|A|B)(\d{3,})$/) || [];
+  if (!number) throw new Error('invalid queue number');
+  const digits = number.split('').map(digit => spokenDigits[digit]).join(' ');
+  const group = prefix === 'A' ? 'กลุ่มทั่วไป' : prefix === 'B' ? 'กลุ่มประสบการณ์' : prefix;
   const text = template.replace('{q}', `${group} ${digits}`);
   return synthesizeText(text, credentials);
 }
@@ -142,12 +144,12 @@ Deno.serve(async request => {
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
   if (!queue || queue.status !== 'calling' || queue.queue_date !== today ||
       Date.parse(queue.called_at || '') !== Date.parse(body.called_at) ||
-      !/^[AB]\d{3,}$/.test(queue.queue_number)) return json(404, 'ไม่พบคิวที่กำลังเรียก');
+      !/^(กลุ่มทั่วไป|กลุ่มประสบการณ์|A|B)\d{3,}$/.test(queue.queue_number)) return json(404, 'ไม่พบคิวที่กำลังเรียก');
 
   const hashBytes = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(template)));
   const templateHash = Array.from(hashBytes, byte => byte.toString(16).padStart(2, '0')).join('');
   const callKey = encodeURIComponent(queue.called_at || '');
-  const path = `${cacheVersion}/${voiceName}/${templateHash}/${queue.queue_date}/${queue.queue_number}-${callKey}.mp3`;
+  const path = `${cacheVersion}/${voiceName}/${templateHash}/${queue.queue_date}/${body.queue_id}-${callKey}.mp3`;
   const cached = await db.storage.from(bucket).download(path);
   if (cached.data) return audioResponse(new Uint8Array(await cached.data.arrayBuffer()));
   try {

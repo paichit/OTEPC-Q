@@ -22,7 +22,7 @@ test('PostgreSQL queue lifecycle, idempotency, date scoping and permissions', as
     await t.test('anonymous kiosk can issue, retry returns the identical ticket', async () => {
       await db.exec('set role anon');
       const id = randomUUID(); a1 = await issue('A', id); b1 = await issue('B'); a2 = await issue('A');
-      assert.equal(a1.queue_number, 'A001'); assert.equal(a2.queue_number, 'A002'); assert.equal(b1.queue_number, 'B001');
+      assert.equal(a1.queue_number, 'กลุ่มทั่วไป001'); assert.equal(a2.queue_number, 'กลุ่มทั่วไป002'); assert.equal(b1.queue_number, 'กลุ่มประสบการณ์001');
       assert.equal((await issue('A', id)).id, a1.id);
       assert.equal((await snapshot()).queues.length, 3);
       await assert.rejects(issue('C'));
@@ -147,9 +147,9 @@ test('PostgreSQL queue lifecycle, idempotency, date scoping and permissions', as
         select gen_random_uuid(), (now() at time zone 'Asia/Bangkok')::date, 'A' || (10000 + i)::text,
           'initial', now() - i * interval '1 second' from generate_series(1, 105) i`);
       await db.exec('set role anon');
-      assert.equal((await issue('A')).queue_number, 'A001');
+      assert.equal((await issue('A')).queue_number, 'กลุ่มทั่วไป001');
       const newCurrent = await call();
-      assert.equal(newCurrent.queue_number, 'A001');
+      assert.equal(newCurrent.queue_number, 'กลุ่มทั่วไป001');
       const currentHistory = (await db.query('select public.queue_call_history_current($1) as h', [token])).rows[0].h;
       const allHistory = (await db.query('select public.queue_call_history($1) as h', [token])).rows[0].h;
       assert.deepEqual(currentHistory.map(q => q.queue_id), [newCurrent.id]);

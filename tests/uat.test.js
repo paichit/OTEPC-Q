@@ -1,0 +1,54 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { PGlite } from '@electric-sql/pglite';
+import { pgcrypto } from '@electric-sql/pglite/contrib/pgcrypto';
+import { reportCsv } from '../src/lib/report.js';
+
+test('UAT queue names, cancelled restoration order, report access and migration', async () => {
+  const db = new PGlite({ extensions: { pgcrypto } });
+  try {
+    await db.exec('create role anon; create role authenticated; create role service_role; create schema extensions; create extension pgcrypto with schema extensions; grant usage on schema public to anon, authenticated;');
+    const schema = await readFile(new URL('../supabase/schema.sql', import.meta.url), 'utf8');
+    await db.exec(schema.split('-- REALTIME SETUP')[0]);
+    const migration = await readFile(new URL('../supabase/migrate-uat-groups-and-restore.sql', import.meta.url), 'utf8');
+    await db.exec(migration);
+    await db.exec(migration);
+    await db.exec("insert into public.staff_accounts (username, password_hash) values ('staff01', extensions.crypt('safe-test-password-123', extensions.gen_salt('bf', 12)))");
+    await db.exec('set role anon');
+    const token = (await db.query("select public.staff_login('staff01', 'safe-test-password-123') as login")).rows[0].login.token;
+    const issue = async group => (await db.query('select to_jsonb(public.issue_queue($1, $2)) as q', [group, randomUUID()])).rows[0].q;
+    const first = await issue('A');
+    const second = await issue('B');
+    assert.equal(first.queue_number, 'กลุ่มทั่วไป001');
+    assert.equal(second.queue_number, 'กลุ่มประสบการณ์001');
+    await db.query('select public.cancel_waiting($1, $2)', [token, first.id]);
+    const third = await issue('A');
+    assert.equal(third.queue_number, 'กลุ่มทั่วไป002');
+    await assert.rejects(db.query('select public.restore_cancelled($1, $2)', ['invalid', first.id]));
+    const restored = (await db.query('select to_jsonb(public.restore_cancelled($1, $2)) as q', [token, first.id])).rows[0].q;
+    assert.equal(restored.queue_number, first.queue_number);
+    assert.equal(restored.status, 'waiting');
+    assert.ok(restored.created_at > third.created_at);
+    await assert.rejects(db.query('select public.restore_cancelled($1, $2)', [token, first.id]), /คืนคิวนี้ไม่ได้/);
+    const call = async expected => (await db.query('select to_jsonb(public.call_next($1, $2)) as q', [token, expected])).rows[0].q;
+    assert.equal((await call(null)).id, second.id);
+    assert.equal((await call(second.id)).id, third.id);
+    assert.equal((await call(third.id)).id, first.id);
+    const report = (await db.query('select public.queue_report($1, null, null) as r', [token])).rows[0].r;
+    assert.ok(report.some(row => row.queue_number === first.queue_number && row.event_kind === 'restored'));
+    assert.ok(report.some(row => row.queue_number === first.queue_number && row.event_kind === 'cancelled'));
+    assert.ok(report.some(row => row.queue_number === first.queue_number && row.event_kind === 'initial'));
+    const csv = reportCsv(report, 'A');
+    assert.ok(csv.startsWith('\ufeff'));
+    assert.ok(csv.includes('กลุ่มทั่วไป001'));
+    assert.ok(!csv.includes('กลุ่มประสบการณ์001'));
+    assert.equal((await db.query('select public.cancelled_queues_current($1) as c', [token])).rows[0].c.length, 0);
+    await db.query('select public.reset_today($1)', [token]);
+    const afterReset = (await db.query('select public.queue_report($1, null, null) as r', [token])).rows[0].r;
+    assert.ok(afterReset.some(row => row.queue_number === first.queue_number && row.event_kind === 'issued'));
+    assert.ok(afterReset.some(row => row.queue_number === first.queue_number && row.event_kind === 'restored'));
+    await assert.rejects(db.exec('select public.queue_report(null, null, null)'));
+  } finally { await db.close(); }
+});

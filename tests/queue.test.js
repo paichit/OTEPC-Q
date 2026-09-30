@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { announcementText, normalizeSettings, defaults, bangkokDate, textColor } from '../src/lib/queue.js';
 test('speech separates every queue character and replaces every placeholder', () => {
-  assert.equal(announcementText('คิว {q} ช่อง {counter} คิว {q}', { queue_number: 'A001', counter_number: 2 }), 'คิว A 0 0 1 ช่อง จุดบริการหลัก คิว A 0 0 1');
+  assert.equal(announcementText('คิว {q} ช่อง {counter} คิว {q}', { queue_number: 'A001', counter_number: 2 }), 'คิว กลุ่มทั่วไป 0 0 1 ช่อง จุดบริการหลัก คิว กลุ่มทั่วไป 0 0 1');
+  assert.equal(announcementText('คิว {q}', { queue_number: 'กลุ่มประสบการณ์012' }), 'คิว กลุ่มประสบการณ์ 0 1 2');
 });
 test('date boundary uses Bangkok instead of browser time zone', () => {
   assert.equal(bangkokDate(new Date('2026-09-22T16:59:59Z')), '2026-09-22');
@@ -16,6 +17,10 @@ test('settings recover from invalid storage and clamp speed', () => {
   assert.equal(normalizeSettings({ voice: 'google-thai', announcement: 'ข้อความเดิม' }).announcement, defaults.announcement);
   assert.equal(normalizeSettings({ announcement: 'เชิญ {q} เข้าห้องประชุม' }).announcement, 'เชิญ {q} เข้าห้องประชุม');
   assert.equal(defaults.ttsRate, 0.75);
+  assert.equal(defaults.colorA, '#A0EADE');
+  assert.equal(defaults.colorB, '#93FF96');
+  assert.equal(normalizeSettings({ colorA: '#2563eb', colorB: '#15803d' }).colorA, defaults.colorA);
+  assert.equal(normalizeSettings({ colorA: '#2563eb', colorB: '#15803d' }).colorB, defaults.colorB);
   assert.equal(defaults.marquee, 'สำนักงาน ก.ค.ศ. ยินดีต้อนรับ • กรุณาเตรียมเอกสารให้พร้อม และรอเรียกหมายเลขคิวของท่าน • ขอบคุณค่ะ');
   assert.equal(normalizeSettings({ speed: 999, sound: false, colorA: 'red' }).speed, 60);
   assert.equal(normalizeSettings({ sound: false }).sound, false);
@@ -26,6 +31,8 @@ test('settings recover from invalid storage and clamp speed', () => {
   assert.equal(normalizeSettings({ ttsVolume: -1 }).ttsVolume, 0);
 });
 test('button labels contrast with chosen colors', () => {
-  assert.equal(textColor('#ffffff'), '#10213b');
+  assert.equal(textColor('#ffffff'), '#000000');
+  assert.equal(textColor(defaults.colorA), '#000000');
+  assert.equal(textColor(defaults.colorB), '#000000');
   assert.equal(textColor('#000000'), '#ffffff');
 });

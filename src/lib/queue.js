@@ -8,7 +8,7 @@ export const defaults = {
   ttsVolume: 1,
   announcement: 'ขอเชิญหมายเลขคิว {q} ที่ห้องประชุมค่ะ',
   marquee: 'สำนักงาน ก.ค.ศ. ยินดีต้อนรับ • กรุณาเตรียมเอกสารให้พร้อม และรอเรียกหมายเลขคิวของท่าน • ขอบคุณค่ะ',
-  speed: 24, colorA: '#2563eb', colorB: '#15803d',
+  speed: 24, colorA: '#A0EADE', colorB: '#93FF96',
   displayBgA: '#f8fafc', displayBgB: '#f8fafc',
   displayTextA: '#0f172a', displayTextB: '#0f172a',
   displayPulseA: '#2563eb', displayPulseB: '#16a34a',
@@ -28,8 +28,8 @@ export function normalizeSettings(value) {
     marquee: typeof v.marquee === 'string' && v.marquee.trim() && v.marquee !== oldMarquee ? v.marquee.slice(0, 500) : defaults.marquee,
     idleMarquee: typeof v.idleMarquee === 'string' && v.idleMarquee.trim() ? v.idleMarquee.slice(0, 500) : defaults.idleMarquee,
     speed: Number.isFinite(Number(v.speed)) ? Math.min(60, Math.max(10, Number(v.speed))) : defaults.speed,
-    colorA: /^#[0-9a-f]{6}$/i.test(v.colorA) ? v.colorA : defaults.colorA,
-    colorB: /^#[0-9a-f]{6}$/i.test(v.colorB) ? v.colorB : defaults.colorB,
+    colorA: /^#[0-9a-f]{6}$/i.test(v.colorA) && v.colorA.toLowerCase() !== '#2563eb' ? v.colorA : defaults.colorA,
+    colorB: /^#[0-9a-f]{6}$/i.test(v.colorB) && v.colorB.toLowerCase() !== '#15803d' ? v.colorB : defaults.colorB,
     ...Object.fromEntries(['displayBgA', 'displayBgB', 'displayTextA', 'displayTextB', 'displayPulseA', 'displayPulseB', 'waitingCardColor', 'marqueeColor'].map(key => [key, /^#[0-9a-f]{6}$/i.test(v[key]) ? v[key] : defaults[key]])),
   };
 }
@@ -38,12 +38,16 @@ export function readSettings() {
   catch { return { ...defaults }; }
 }
 export function announcementText(template, queue) {
-  return template.replaceAll('{q}', queue.queue_number.split('').join(' ')).replaceAll('{counter}', 'จุดบริการหลัก');
+  const match = queue.queue_number.match(/^(กลุ่มทั่วไป|กลุ่มประสบการณ์|A|B)(\d{3,})$/);
+  const spoken = match
+    ? `${match[1] === 'A' ? groups.A : match[1] === 'B' ? groups.B : match[1]} ${match[2].split('').join(' ')}`
+    : queue.queue_number;
+  return template.replaceAll('{q}', spoken).replaceAll('{counter}', 'จุดบริการหลัก');
 }
 export function bangkokDate(now = new Date()) {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
 }
 export function textColor(hex) {
   const rgb = hex.slice(1).match(/../g).map(x => parseInt(x, 16) / 255).map(x => x <= 0.04045 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4);
-  return rgb[0] * .2126 + rgb[1] * .7152 + rgb[2] * .0722 > .179 ? '#10213b' : '#ffffff';
+  return rgb[0] * .2126 + rgb[1] * .7152 + rgb[2] * .0722 > .179 ? '#000000' : '#ffffff';
 }

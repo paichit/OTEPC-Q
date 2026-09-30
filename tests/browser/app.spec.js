@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { readFile } from 'node:fs/promises';
 test('starting the queue display requests and plays spoken confirmation', async ({ page }) => {
   await page.addInitScript(() => {
     window.startupPlayCount = 0;
@@ -30,7 +31,7 @@ test('kiosk, settings, display and responsive layout', async ({ page }) => {
     if (name === 'issue_queue') {
       issued++;
       await new Promise(resolve => setTimeout(resolve, 250));
-      const q = { id: 'test-queue', queue_number: 'A001', service_group: 'A', status: 'waiting', queue_date: '2026-09-22', created_at: '2026-09-22T02:00:00Z' };
+      const q = { id: 'test-queue', queue_number: 'กลุ่มทั่วไป001', service_group: 'A', status: 'waiting', queue_date: '2026-09-22', created_at: '2026-09-22T02:00:00Z' };
       queues.push(q); return route.fulfill({ json: q });
     }
     return route.fulfill({ json: null });
@@ -39,12 +40,12 @@ test('kiosk, settings, display and responsive layout', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'กรุณากดรับคิว' })).toBeVisible();
   await page.screenshot({ path: 'test-results/kiosk-desktop.png', fullPage: true });
-  const a = page.getByRole('button', { name: 'รับคิวกลุ่มทั่วไป A' });
+  const a = page.getByRole('button', { name: 'รับคิวกลุ่มทั่วไป' });
   await a.click();
   await expect(a).toBeDisabled();
   await expect(page.getByRole('dialog')).toBeVisible();
   expect(issued).toBe(1);
-  await expect(page.getByRole('dialog').getByText('A001')).toBeVisible();
+  await expect(page.getByRole('dialog').getByText('กลุ่มทั่วไป001')).toBeVisible();
   await expect(page.getByRole('button', { name: 'พิมพ์บัตรคิว' })).toHaveCount(0);
   await page.getByRole('button', { name: 'ปิดหน้าต่าง' }).click();
   await page.getByRole('button', { name: 'ตั้งค่าระบบ', exact: true }).click();
@@ -89,12 +90,12 @@ test('kiosk, settings, display and responsive layout', async ({ page }) => {
   await page.screenshot({ path: 'test-results/kiosk-mobile.png', fullPage: true });
   queues[0].status = 'calling';
   queues[0].called_at = new Date().toISOString();
-  queues.push({ id: 'next-queue', queue_number: 'B002', service_group: 'B', status: 'waiting', queue_date: '2026-09-22', created_at: '2026-09-22T02:00:01Z' });
+  queues.push({ id: 'next-queue', queue_number: 'กลุ่มประสบการณ์002', service_group: 'B', status: 'waiting', queue_date: '2026-09-22', created_at: '2026-09-22T02:00:01Z' });
   await page.setViewportSize({ width: 1920, height: 900 });
   await page.reload();
   await page.getByRole('button', { name: 'จอแสดงคิว', exact: true }).click();
   await page.getByRole('button', { name: 'เริ่มระบบและเปิดเสียง' }).click();
-  await expect(page.getByText('B002')).toBeVisible();
+  await expect(page.getByText('กลุ่มประสบการณ์002')).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth && document.documentElement.scrollHeight <= window.innerHeight + 1)).toBe(true);
   await page.screenshot({ path: 'test-results/display-tv.png', fullPage: true });
   expect(errors).toEqual([]);
@@ -142,6 +143,15 @@ test('staff login, next, reset confirmation and API error modal', async ({ page 
       q.status = 'cancelled'; q.updated_at = new Date().toISOString();
       return route.fulfill({ json: q });
     }
+    if (name === 'cancelled_queues_current') return route.fulfill({ json: queues.filter(q => q.status === 'cancelled') });
+    if (name === 'restore_cancelled') {
+      const q = queues.find(q => q.id === route.request().postDataJSON().p_queue_id);
+      q.status = 'waiting'; q.created_at = new Date().toISOString();
+      return route.fulfill({ json: q });
+    }
+    if (name === 'queue_report') return route.fulfill({ json: [
+      { queue_date: '2026-09-22', queue_number: 'A003', service_group: 'A', event_kind: 'cancelled', event_at: '2026-09-22T02:00:03Z' },
+    ] });
     if (name === 'queue_call_history') {
       const history = [...new Set(callEvents.map(e => e.queue_id))].map(id => {
         const events = callEvents.filter(e => e.queue_id === id);
@@ -199,6 +209,18 @@ test('staff login, next, reset confirmation and API error modal', async ({ page 
   await page.getByRole('button', { name: 'เรียกคิวถัดไป', exact: true }).click();
   await expect(page.getByRole('dialog')).toContainText('ทดสอบข้อผิดพลาดจาก API');
   await page.getByRole('button', { name: 'รับทราบ', exact: true }).click();
+  await page.getByRole('button', { name: 'ส่งออกรายงาน' }).click();
+  const downloadPromise = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'ข้อมูลรวมทุกกลุ่ม' }).click();
+  const report = await downloadPromise;
+  expect(report.suggestedFilename()).toMatch(/otepc-queue-report-all.*\.csv$/);
+  expect(await readFile(await report.path(), 'utf8')).toContain('A003');
+  await page.getByRole('button', { name: 'ปิดหน้าต่าง' }).click();
+  await page.getByRole('button', { name: 'คืนคิวที่ยกเลิก' }).click();
+  await expect(page.getByRole('dialog')).toContainText('A003');
+  await page.getByRole('dialog').getByRole('button', { name: 'คืนคิว', exact: true }).click();
+  await page.getByRole('button', { name: 'ยืนยันคืนคิว' }).click();
+  await expect(page.getByText('รอเข้ารับเรียกคิว')).toBeVisible();
   await page.getByRole('button', { name: 'รีเซ็ตคิวของวันนี้', exact: true }).click();
   expect(resets).toBe(0);
   await page.getByRole('button', { name: 'กลับ', exact: true }).click();

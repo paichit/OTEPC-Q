@@ -245,7 +245,7 @@ nav { display: flex; gap: 5px; }
 .view-staff .staff-action-recall { color: #fff; background: #eab308; border: 1px solid #ca8a04; }
 .view-staff .staff-action-recall:hover:not(:disabled) { color: #fff; background: #ca8a04; }
 .view-staff .staff-toolbar > button { font-size: 15px; }
-@media (max-width: 900px) {
+@media (max-width: 1200px) {
   .staff-toolbar { grid-template-columns: auto minmax(0, 1fr) auto; }
   .staff-queue-summary { grid-column: 1 / -1; grid-row: 2; justify-content: center; }
   .staff-reset-button { grid-column: 3; grid-row: 1; }
@@ -421,6 +421,15 @@ nav { display: flex; gap: 5px; }
 .app-shell-kiosk .view-kiosk { min-height: 0; padding-block: 0; }
 .app-shell-kiosk .kiosk-prototype { min-height: 0; flex: 1; gap: clamp(12px, 3.5dvh, 34px); padding-block: clamp(8px, 2.5dvh, 24px); }
 .app-shell-kiosk .kiosk-option { min-height: clamp(160px, 32dvh, 288px); }
+.kiosk-option .kiosk-option-label { margin-top: 0; font-size: clamp(24px, 3.1vw, 42px); font-weight: 700; line-height: 1.35; }
+.ticket-number.long-number { font-size: clamp(23px, 6vw, 36px); line-height: 1.4; overflow-wrap: anywhere; }
+.staff-current-number.long-number { font-size: clamp(28px, 4vw, 62px); line-height: 1.3; letter-spacing: 0; }
+.prototype-current-number.long-number { font-size: clamp(30px, 4.2vw, 72px); line-height: 1.25; letter-spacing: 0; }
+.prototype-next-row strong.long-number { white-space: normal; font-size: clamp(15px, 1.6vw, 24px); text-align: right; overflow-wrap: anywhere; }
+.view-staff .queue-row strong.long-number { font-size: 19px; overflow-wrap: anywhere; }
+.view-staff .queue-restore-action { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-height: 34px; padding: 5px 9px; border-radius: 8px; background: #ffffff; color: #9a3412; font-size: 13px; font-weight: 700; }
+.view-staff .queue-restore-action:hover:not(:disabled) { background: #ffedd5; }
+.staff-history-actions { flex-wrap: wrap; }
 .app-shell-kiosk .summary-strip { flex: none; gap: clamp(14px, 2.5vw, 36px); padding: 12px 16px; }
 .app-shell-kiosk .site-footer { flex: none; padding-block: 12px; }
 @media (max-width: 700px) {

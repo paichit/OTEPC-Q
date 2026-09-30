@@ -53,8 +53,8 @@ test('username-only staff authentication and queue permissions', async t => {
     await t.test('staff token gates queue actions and retains FIFO/recall/history/reset', async () => {
       const a = await issue('A', '11111111-1111-4111-8111-111111111111');
       const b = await issue('B', '22222222-2222-4222-8222-222222222222');
-      assert.equal(a.queue_number, 'A001');
-      assert.equal(b.queue_number, 'B001');
+      assert.equal(a.queue_number, 'กลุ่มทั่วไป001');
+      assert.equal(b.queue_number, 'กลุ่มประสบการณ์001');
       await assert.rejects(db.exec('select public.call_next(null)'));
       await assert.rejects(db.query('select public.call_next($1, null)', ['a'.repeat(64)]), /เซสชันเจ้าหน้าที่/);
       const first = (await query('select to_jsonb(public.call_next($1, null)) as q', [token])).q;

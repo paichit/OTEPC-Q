@@ -10,17 +10,19 @@ React + Vite + Tailwind CSS + Supabase SPA ภาษาไทย ฟอนต์
 
 คอลัมน์ตามโจทย์: `id`, `created_at`, `queue_date`, `queue_number`, `service_group`, `counter_number`, `status`, `called_at` เพิ่ม `request_id` สำหรับป้องกันการออกคิวซ้ำเมื่อ retry และ `updated_at` สำหรับเรียงประวัติล่าสุด
 
-- `issue_queue`: นับคิวรายวันแยกกลุ่ม A/B ภายใน transaction ที่ล็อกระดับวัน แล้วออก A001 / B001; unique constraint เป็นการป้องกันอีกชั้นหนึ่ง
+- `issue_queue`: นับคิวรายวันแยกกลุ่มภายใน transaction ที่ล็อกระดับวัน แล้วออก `กลุ่มทั่วไป001` / `กลุ่มประสบการณ์001`; A/B ยังคงเป็นรหัสภายในฐานข้อมูล และคิวเก่าที่ออกไปแล้วไม่ถูกเปลี่ยนเลข
 - `call_next`: เลือก waiting ที่เก่าสุดจาก A/B รวมกัน ปิดคิวเดิม และเปลี่ยนคิวถัดไปเป็น calling ใน transaction เดียวกัน ถ้าไม่มีคิวรอจะเก็บคิวปัจจุบันไว้
 - `p_expected`: ตรวจว่าคิวปัจจุบันยังตรงกับที่เจ้าหน้าที่เห็น ป้องกันสองหน้าจอเรียกข้ามคนโดยไม่ได้ตั้งใจ
 - `recall_current`: เรียกคิวปัจจุบันซ้ำโดยบันทึกเหตุการณ์ใหม่และส่ง Realtime ไปยังจอแสดงผล
 - `cancel_waiting`: ยกเลิกได้เฉพาะคิวสถานะ waiting โดยเจ้าหน้าที่
+- `restore_cancelled`: เจ้าหน้าที่คืนคิวที่ยกเลิกในรอบปัจจุบันด้วยเลขเดิม โดยย้ายไปท้ายแถวคิวรอและบันทึกเหตุการณ์คืนคิว
+- `queue_report`: ส่งออกเหตุการณ์รับคิว เรียกคิว เรียกซ้ำ ยกเลิก และคืนคิว เป็น CSV รวมทุกกลุ่มหรือแยกกลุ่ม เลือกช่วงวันที่ได้
 - `queue_call_history`: เจ้าหน้าที่ดูประวัติการเรียกทุกช่วงเวลา พร้อมจำนวนครั้งและเวลาของการเรียกแต่ละครั้ง
 - `queue_call_history_current`: เจ้าหน้าที่ดูการเรียกและการยกเลิกของคิวที่ยังอยู่ในรอบปัจจุบัน ไม่รวมคิวจากรอบที่รีเซ็ตแล้ว
-- `reset_today`: ลบคิววันนี้ทั้งสองกลุ่มและเริ่มลำดับใหม่ หลังยืนยันใน Custom Modal; ประวัติการเรียกใน `queue_call_events` ยังคงอยู่
+- `reset_today`: ลบคิววันนี้ทั้งสองกลุ่มและเริ่มลำดับใหม่ หลังยืนยันใน Custom Modal; ประวัติการเรียกใน `queue_call_events` และรายการยกเลิกใน `queue_cancel_events` ยังคงอยู่
 - `queue_snapshot`: คืน waiting/calling ทั้งหมดและประวัติล่าสุด 50 รายการใน snapshot เดียว
 
-วันใหม่คำนวณโดย PostgreSQL ด้วย `Asia/Bangkok` ไม่ต้องลบประวัติทุกคืน เลขคิวเกิน 999 จะเป็น A1000 ไม่ตัดเหลือสามหลัก ทุก RPC ที่เขียนข้อมูลใช้ advisory transaction lock เดียวกันต่อวัน จึงทำงานสอดคล้องกันเมื่อรับคิว เรียกคิว และรีเซ็ตพร้อมกัน
+วันใหม่คำนวณโดย PostgreSQL ด้วย `Asia/Bangkok` ไม่ต้องลบประวัติทุกคืน เลขคิวเกิน 999 จะเป็น `กลุ่มทั่วไป1000` หรือ `กลุ่มประสบการณ์1000` ไม่ตัดเหลือสามหลัก ทุก RPC ที่เขียนข้อมูลใช้ advisory transaction lock เดียวกันต่อวัน จึงทำงานสอดคล้องกันเมื่อรับคิว เรียกคิว คืนคิว และรีเซ็ตพร้อมกัน
 
 ### บัญชีเจ้าหน้าที่และชื่อผู้ใช้
 
@@ -160,7 +162,7 @@ Unit tests ตรวจข้อความเสียง เขตเวล�
 ประวัติการเรียกเก็บแยกจากตารางคิวและไม่ถูกลบเมื่อรีเซ็ต หากย้ายจากระบบรุ่นก่อน migration จะสร้างเหตุการณ์เรียกครั้งแรกจาก called_at เท่าที่มีอยู่ แต่ไม่สามารถกู้จำนวนการเรียกซ้ำในอดีตที่ไม่เคยบันทึกได้
 
 
-การปรับหน้า UI ตาม Prototype รอบล่าสุดไม่ต้องใช้ SQL migration เพิ่ม เพราะ schema/RLS/RPC รองรับกติกาที่ตกลงแล้ว; การตั้งค่าสีและข้อความใหม่อยู่ใน localStorage ของแต่ละเครื่อง หากใช้งานฐานข้อมูลเดิมที่ยังไม่ได้อัปเกรด ให้รัน `supabase/migrate-recall-cancel.sql` ก่อนใช้ฟังก์ชันเรียกซ้ำและยกเลิก
+การเปลี่ยนเลขคิวเป็นชื่อกลุ่ม การคืนคิว และรายงาน UAT **ต้องใช้** [`supabase/migrate-uat-groups-and-restore.sql`](supabase/migrate-uat-groups-and-restore.sql) บนฐานเดิม คิวที่ออกก่อน migration ยังใช้เลข A/B เดิม ส่วนคิวใหม่ใช้ชื่อกลุ่ม ระบบจะนับเลขต่อจากคิวเก่าในวันเดียวกัน รายงานเก็บเหตุการณ์ออกคิว เรียก ยกเลิก และคืนคิวต่อจากนี้แม้รีเซ็ตคิวแล้ว และ backfill การออกคิวจากแถวที่ยังอยู่ในฐานก่อน migration; คิวที่ถูกรีเซ็ตจนลบไปก่อนหน้านี้ไม่สามารถกู้เหตุการณ์รับคิวที่ไม่เคยบันทึกได้ การตั้งค่าสีใหม่อยู่ใน localStorage ของแต่ละเครื่อง โดยค่าสีน้ำเงิน/เขียวเริ่มต้นเก่าจะเปลี่ยนเป็นสีพาสเทลเมื่อเปิดเว็บรุ่นใหม่
 
 ## โครงสร้างและประสิทธิภาพรุ่นล่าสุด
 
@@ -169,3 +171,75 @@ Unit tests ตรวจข้อความเสียง เขตเวล�
 สำหรับฐานข้อมูลที่มีระบบเรียกซ้ำแล้ว ให้รัน [migrate-snapshot-performance.sql](supabase/migrate-snapshot-performance.sql) ก่อน แล้วตามด้วย [migrate-recent-history-50.sql](supabase/migrate-recent-history-50.sql), [migrate-current-and-full-call-history.sql](supabase/migrate-current-and-full-call-history.sql), [migrate-current-history-cancellations.sql](supabase/migrate-current-history-cancellations.sql), [migrate-all-history-cancellations.sql](supabase/migrate-all-history-cancellations.sql) และ [migrate-single-audio-output.sql](supabase/migrate-single-audio-output.sql) เพื่อรองรับ snapshot ล่าสุด 50 คิว, ประวัติรอบปัจจุบันและประวัติทั้งหมดที่รวมคิวถูกยกเลิก รวมถึงล็อกเสียงกลางที่ป้องกันการประกาศจากหลายอุปกรณ์พร้อมกัน; migration เหล่านี้ไม่ลบข้อมูลหรือเปลี่ยน RLS ของคิว สำหรับโปรเจกต์ใหม่ใช้ schema.sql ล่าสุดครั้งเดียว ไม่ต้องรัน migration ย้อนหลัง หลังเพิ่ม migration เสียงแล้ว ให้ deploy Edge Function `queue-audio-lock` ด้วย `npx supabase functions deploy queue-audio-lock --project-ref <project-ref>` การแก้ไฟล์ SQL ในโครงการไม่ได้เปลี่ยนฐานข้อมูล Supabase จริงโดยอัตโนมัติ
 
 ตรวจทั้งหมดด้วย `npm run check` และวัดขนาดหลัง build ด้วย `npm run size`
+
+## 7. คำสั่งสำคัญสำหรับพัฒนาและ UAT
+
+คำสั่งตัวอย่างใช้ PowerShell และไม่ใส่ค่า secret ลงในคำสั่งหรือ Git
+
+### ติดตั้งและเปิดเว็บในเครื่อง
+
+```powershell
+npm ci
+Copy-Item .env.example .env.local  # ทำครั้งแรกเท่านั้น; ถ้ามี .env.local อยู่แล้วให้ข้าม
+# ใส่ Supabase URL และ Anon/Publishable key ใน .env.local
+npm run dev
+```
+
+เปิด `http://localhost:5173` หากแก้ `.env.local` ให้หยุดแล้วเริ่ม `npm run dev` ใหม่
+
+### ตรวจสอบก่อนส่งขึ้น UAT
+
+```powershell
+npm test                # unit และ PostgreSQL จำลอง (PGlite)
+npm run test:browser    # browser tests ด้วย Playwright
+npm run build            # สร้างเว็บสำหรับ deploy ใน dist/
+npm run check            # รัน tests, browser tests และ build ตามลำดับ
+npm run size             # สรุปขนาด build
+```
+
+ใช้ `npm run check` ก่อน push เพื่อให้ได้ผลตรวจครบชุด หาก Browser test แจ้งว่าไม่มี Chrome ให้รัน `npx playwright install chrome` หนึ่งครั้ง
+
+### Supabase CLI และ migration
+
+```powershell
+npx supabase login
+npx supabase projects list
+npx supabase db query --linked --project-ref pvuhrnvyhyxffudqjams --file supabase/migrate-all-history-cancellations.sql
+npx supabase functions deploy queue-audio-lock --project-ref pvuhrnvyhyxffudqjams
+npx supabase functions deploy queue-tts --project-ref pvuhrnvyhyxffudqjams
+npx supabase db query --linked --project-ref pvuhrnvyhyxffudqjams --file supabase/migrate-uat-groups-and-restore.sql
+```
+
+คำสั่ง migration ใช้กับฐานข้อมูล OTEPC Q ที่มีอยู่แล้วและควรตรวจไฟล์ SQL ก่อนรันทุกครั้ง สามารถใช้ Supabase Dashboard → SQL Editor แล้ววางเนื้อหาไฟล์ migration แทน CLI ได้เช่นกัน **ห้ามรัน `supabase/schema.sql` ซ้ำบนโปรเจกต์เดิม** เพราะเป็นสคริปต์สร้างฐานข้อมูลใหม่ทั้งชุด Secret ของ Google Cloud ให้ตั้งใน Supabase → Edge Function Secrets ตาม [คู่มือ Cloud TTS](docs/google-cloud-tts.md); อย่าใส่ JSON key หรือ service-role key ใน `.env.local`, README หรือ Git
+
+หากใช้ Codex Supabase MCP ตาม [คู่มือ MCP](./คู่มือ-ตั้งค่า-supabase-mcp-codex.md) ให้ตรวจการตั้งค่าและ login ด้วย:
+
+```powershell
+codex mcp list
+codex mcp login supabase_otepc_q
+```
+
+MCP ในคู่มือตั้งเป็นอ่านอย่างเดียว; ใช้ Supabase CLI หรือ Dashboard SQL Editor สำหรับ migration
+
+### ส่ง branch เพื่อสร้าง Vercel Preview
+
+```powershell
+npm install --global vercel  # ติดตั้งครั้งแรกเท่านั้น
+vercel login
+vercel link                  # เชื่อม repo กับ Vercel ครั้งแรกเท่านั้น
+vercel env ls preview        # ตรวจชื่อ environment variables โดยไม่แสดงค่า
+npm run check
+git status --short
+git switch uat-preview
+git add <ไฟล์ที่ต้องการส่ง>
+git diff --cached --check
+git diff --cached --name-only
+git commit -m "Describe the UAT change"
+git push
+vercel ls
+vercel inspect <preview-deployment-url>
+```
+
+ครั้งแรกที่สร้าง branch ใช้ `git switch -c uat-preview` และ push ด้วย `git push -u origin uat-preview`; ครั้งต่อไปใช้ `git switch uat-preview` แล้ว `git push` ตามตัวอย่าง หลีกเลี่ยง `git add .` เพื่อให้ตรวจไฟล์ก่อน commit ได้ชัดเจน การ push branch นี้สร้าง Preview; อย่า push เข้า production branch `main` จนกว่าจะพร้อมเผยแพร่
+
+Vercel Preview ของโปรเจกต์นี้ใช้ Supabase OTEPC Q ชุดเดียวกับที่ตั้งไว้ใน Environment Variables ของ Preview ดังนั้นการรับคิว เรียก ยกเลิก หรือรีเซ็ตขณะ UAT จะเปลี่ยนข้อมูลในฐานข้อมูลจริงของโปรเจกต์นี้
