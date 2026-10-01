@@ -1,6 +1,94 @@
 import { test, expect } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 
+test('each group calls independently and has its own current, waiting and display columns', async ({ page }) => {
+  const queues = [
+    { id: 'a1', service_group: 'A', queue_number: 'A001', status: 'calling', created_at: '2026-10-01T02:00:00Z', called_at: '2026-10-01T02:00:10Z', call_count: 1 },
+    { id: 'b1', service_group: 'B', queue_number: 'B001', status: 'calling', created_at: '2026-10-01T02:00:01Z', called_at: '2026-10-01T02:00:11Z', call_count: 1 },
+    { id: 'b2', service_group: 'B', queue_number: 'B002', status: 'waiting', created_at: '2026-10-01T02:00:02Z' },
+    { id: 'a2', service_group: 'A', queue_number: 'A002', status: 'waiting', created_at: '2026-10-01T02:00:03Z' },
+    { id: 'b3', service_group: 'B', queue_number: 'B003', status: 'waiting', created_at: '2026-10-01T02:00:04Z' },
+    { id: 'a3', service_group: 'A', queue_number: 'A003', status: 'waiting', created_at: '2026-10-01T02:00:05Z' },
+    ...[4, 5, 6].flatMap(n => ['A', 'B'].map(group => ({ id: `${group.toLowerCase()}${n}`, service_group: group, queue_number: `${group}00${n}`, status: 'waiting', created_at: `2026-10-01T02:01:0${n}Z` }))),
+  ].map(q => ({ ...q, queue_date: '2026-10-01', updated_at: q.called_at || q.created_at }));
+  await page.addInitScript(() => {
+    sessionStorage.setItem('otepc-staff-token', 'a'.repeat(64));
+    localStorage.setItem('otepc-settings', JSON.stringify({ sound: false }));
+  });
+  await page.route('https://queue-test.supabase.co/rest/v1/rpc/**', route => {
+    const name = route.request().url().split('/').at(-1);
+    const body = route.request().postDataJSON();
+    if (name === 'queue_snapshot') return route.fulfill({ json: { queues, calling_mode: 'by_group' } });
+    if (name === 'staff_session') return route.fulfill({ json: { username: 'staff01' } });
+    if (name === 'call_next_in_group') {
+      const current = queues.find(q => q.status === 'calling' && q.service_group === body.p_group);
+      expect(body.p_expected).toBe(current.id);
+      const next = queues.find(q => q.status === 'waiting' && q.service_group === body.p_group);
+      current.status = 'completed';
+      current.updated_at = new Date().toISOString();
+      Object.assign(next, { status: 'calling', called_at: new Date().toISOString(), call_count: 1 });
+      return route.fulfill({ json: next });
+    }
+    if (name === 'recall_current') {
+      const q = queues.find(q => q.id === body.p_expected);
+      q.call_count++;
+      return route.fulfill({ json: q });
+    }
+    return route.fulfill({ json: null });
+  });
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'จัดการคิว', exact: true }).click();
+  const a = page.getByRole('region', { name: 'จัดการคิวกลุ่มทั่วไป', exact: true });
+  const b = page.getByRole('region', { name: 'จัดการคิวกลุ่มประสบการณ์', exact: true });
+  await expect(a.locator('.staff-current-number')).toHaveText('กลุ่มทั่วไป001');
+  await expect(b.locator('.staff-current-number')).toHaveText('กลุ่มประสบการณ์001');
+  await expect(a.locator('.queue-row strong')).toHaveText([2, 3, 4, 5, 6].map(n => `กลุ่มทั่วไป00${n}`));
+  await expect(b.locator('.queue-row strong')).toHaveText([2, 3, 4, 5, 6].map(n => `กลุ่มประสบการณ์00${n}`));
+  const aCard = await a.locator('.staff-current').boundingBox();
+  const aWaiting = await a.locator('.staff-group-waiting').boundingBox();
+  const bCard = await b.locator('.staff-current').boundingBox();
+  expect(aWaiting.y).toBeGreaterThan(aCard.y + aCard.height);
+  expect(bCard.x).toBeGreaterThan(aCard.x + aCard.width);
+  await b.getByRole('button', { name: 'เรียกคิวถัดไป', exact: true }).click();
+  await expect(b.locator('.staff-current-number')).toHaveText('กลุ่มประสบการณ์002');
+  await expect(a.locator('.staff-current-number')).toHaveText('กลุ่มทั่วไป001');
+  await a.getByRole('button', { name: 'เรียกซ้ำ', exact: true }).click();
+  await expect(a.getByText('เรียกแล้ว 2 ครั้ง', { exact: false })).toBeVisible();
+  await expect(b.getByText('เรียกแล้ว 1 ครั้ง', { exact: false })).toBeVisible();
+  await page.screenshot({ path: 'test-results/staff-group-desktop.png', fullPage: true });
+  await page.getByRole('button', { name: 'จอแสดงคิว', exact: true }).click();
+  await page.getByRole('button', { name: 'เริ่มระบบและเปิดเสียง' }).click();
+  const displayA = page.getByRole('region', { name: 'จอแสดงคิวกลุ่มทั่วไป', exact: true });
+  const displayB = page.getByRole('region', { name: 'จอแสดงคิวกลุ่มประสบการณ์', exact: true });
+  await expect(displayA.locator('.prototype-current-number')).toHaveText('กลุ่มทั่วไป001');
+  await expect(displayB.locator('.prototype-current-number')).toHaveText('กลุ่มประสบการณ์002');
+  await expect(displayA.locator('.prototype-waiting-total strong')).toHaveText('5');
+  await expect(displayB.locator('.prototype-waiting-total strong')).toHaveText('4');
+  await expect(displayA.locator('.prototype-next-row strong')).toHaveText([2, 3, 4, 5, 6].map(n => `กลุ่มทั่วไป00${n}`));
+  await expect(displayB.locator('.prototype-next-row strong')).toHaveText([3, 4, 5, 6].map(n => `กลุ่มประสบการณ์00${n}`));
+  const boxA = await displayA.boundingBox();
+  const boxB = await displayB.boundingBox();
+  expect(Math.abs(boxA.width - boxB.width)).toBeLessThan(2);
+  expect(boxB.x).toBeGreaterThan(boxA.x);
+  await page.setViewportSize({ width: 1920, height: 900 });
+  expect(await displayA.locator('.prototype-next').evaluate(node => node.scrollHeight <= node.clientHeight + 1)).toBe(true);
+  await page.screenshot({ path: 'test-results/display-group-tv.png', fullPage: true });
+  await page.setViewportSize({ width: 390, height: 900 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth && document.documentElement.scrollHeight <= innerHeight + 1)).toBe(true);
+  await page.screenshot({ path: 'test-results/display-group-mobile.png', fullPage: true });
+});
+
+test('unmigrated database shows split layout but prevents group calls', async ({ page }) => {
+  await page.addInitScript(() => sessionStorage.setItem('otepc-staff-token', 'a'.repeat(64)));
+  await page.route('https://queue-test.supabase.co/rest/v1/rpc/**', route => route.fulfill({ json:
+    route.request().url().endsWith('/staff_session') ? { username: 'staff01' } : { queues: [] } }));
+  await page.goto('/');
+  await page.getByRole('button', { name: 'จัดการคิว', exact: true }).click();
+  await expect(page.getByText('ยังไม่เปิดใช้งานการเรียกคิวแยกกลุ่ม', { exact: false })).toBeVisible();
+  for (const button of await page.getByRole('button', { name: 'เรียกคิวถัดไป', exact: true }).all()) await expect(button).toBeDisabled();
+});
+
 test('shared group names and typed HEX propagate to tickets display history and reports', async ({ page }) => {
   let names = { A: 'กลุ่มทั่วไป', B: 'กลุ่มประสบการณ์' };
   let saves = 0;
@@ -11,7 +99,7 @@ test('shared group names and typed HEX propagate to tickets display history and 
   });
   await page.route('https://queue-test.supabase.co/rest/v1/rpc/**', route => {
     const name = route.request().url().split('/').at(-1);
-    if (name === 'queue_snapshot') return route.fulfill({ json: { queues, group_names: names } });
+    if (name === 'queue_snapshot') return route.fulfill({ json: { queues, group_names: names, calling_mode: 'by_group' } });
     if (name === 'set_queue_group_names') {
       saves++;
       const body = route.request().postDataJSON();
@@ -42,7 +130,7 @@ test('shared group names and typed HEX propagate to tickets display history and 
   await page.getByRole('button', { name: 'ปิดหน้าต่าง' }).click();
   await page.getByRole('button', { name: 'จอแสดงคิว', exact: true }).click();
   await page.getByRole('button', { name: 'เริ่มระบบและเปิดเสียง' }).click();
-  await expect(page.locator('.prototype-current-number')).toHaveText('ผู้สมัครทั่วไป001');
+  await expect(page.locator('.prototype-display-group[data-group="A"] .prototype-current-number')).toHaveText('ผู้สมัครทั่วไป001');
   await page.getByRole('button', { name: 'จัดการคิว', exact: true }).click();
   await page.getByRole('button', { name: 'ประวัติการเรียก', exact: true }).click();
   await expect(page.getByRole('dialog')).toContainText('ผู้สมัครทั่วไป001');
@@ -83,7 +171,7 @@ test('kiosk, settings, display and responsive layout', async ({ page }) => {
   const queues = [];
   await page.route('https://queue-test.supabase.co/rest/v1/rpc/**', async route => {
     const name = route.request().url().split('/').at(-1);
-    if (name === 'queue_snapshot') return route.fulfill({ json: { queue_date: '2026-09-22', queues } });
+    if (name === 'queue_snapshot') return route.fulfill({ json: { queue_date: '2026-09-22', queues, calling_mode: 'by_group' } });
     if (name === 'issue_queue') {
       issued++;
       await new Promise(resolve => setTimeout(resolve, 250));
@@ -131,7 +219,7 @@ test('kiosk, settings, display and responsive layout', async ({ page }) => {
   await page.getByRole('button', { name: 'เริ่มระบบและเปิดเสียง' }).click();
   await expect(page.getByText('กรุณารอเรียกคิวค่ะ')).toBeVisible();
   await expect(page.getByRole('button', { name: 'เปิดเต็มจอ' })).toBeVisible();
-  await expect(page.getByText('คิวถัดไป / Next')).toBeVisible();
+  await expect(page.getByText('คิวถัดไป / Next')).toHaveCount(2);
   await page.screenshot({ path: 'test-results/display-desktop.png', fullPage: true });
   for (const width of [320, 390, 768, 1024, 1440]) {
     await page.setViewportSize({ width, height: 900 });
@@ -179,7 +267,7 @@ test('staff login, next, reset confirmation and API error modal', async ({ page 
   const callEvents = [];
   await page.route('https://queue-test.supabase.co/rest/v1/rpc/**', route => {
     const name = route.request().url().split('/').at(-1);
-    if (name === 'queue_snapshot') return route.fulfill({ json: { queue_date: '2026-09-22', queues } });
+    if (name === 'queue_snapshot') return route.fulfill({ json: { queue_date: '2026-09-22', queues, calling_mode: 'by_group' } });
     if (name === 'staff_session') return route.fulfill({ json: loggedIn ? { username: 'staff01', expires_at: new Date(Date.now() + 3600000).toISOString() } : null });
     if (name === 'staff_login') {
       loginUsername = route.request().postDataJSON().p_username;
@@ -188,10 +276,11 @@ test('staff login, next, reset confirmation and API error modal', async ({ page 
       return route.fulfill({ json: { token, username: loginUsername, expires_at: new Date(Date.now() + 3600000).toISOString() } });
     }
     if (name === 'staff_logout') { loggedIn = false; return route.fulfill({ json: null }); }
-    if (name === 'call_next') {
-      const next = queues.find(q => q.status === 'waiting');
+    if (name === 'call_next_in_group') {
+      const group = route.request().postDataJSON().p_group;
+      const next = queues.find(q => q.status === 'waiting' && q.service_group === group);
       if (!next) return route.fulfill({ status: 400, json: { message: 'ทดสอบข้อผิดพลาดจาก API' } });
-      queues.forEach(q => { if (q.status === 'calling') q.status = 'completed'; });
+      queues.forEach(q => { if (q.status === 'calling' && q.service_group === group) q.status = 'completed'; });
       Object.assign(next, { status: 'calling', counter_number: null, called_at: new Date().toISOString(), call_count: 1 });
       callEvents.push({ queue_id: next.id, queue_number: next.queue_number, queue_date: next.queue_date, event_kind: 'initial', called_at: next.called_at });
       return route.fulfill({ json: next });
@@ -242,18 +331,18 @@ test('staff login, next, reset confirmation and API error modal', async ({ page 
   expect(loginUsername).toBe('staff01');
   await expect(page.locator('.page-heading-account')).toContainText('STAFF WORKSPACE · staff01');
   await expect(page.getByRole('heading', { name: 'จัดการคิว อย่างเป็นระบบ' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'เรียกคิวถัดไป', exact: true })).toHaveCount(1);
-  await expect(page.locator('.staff-current .staff-action-next')).toBeVisible();
-  await expect(page.locator('.staff-current .staff-action-recall')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'เรียกคิวถัดไป', exact: true })).toHaveCount(2);
+  await expect(page.locator('.staff-group-column[data-group="A"] .staff-action-next')).toBeVisible();
+  await expect(page.locator('.staff-group-column[data-group="A"] .staff-action-recall')).toBeVisible();
   await expect(page.getByRole('button', { name: 'เรียกคิวถัดไป (A/B)', exact: true })).toHaveCount(0);
   await page.reload();
   await page.getByRole('button', { name: 'จัดการคิว', exact: true }).click();
   await expect(page.locator('.page-heading-account')).toContainText('STAFF WORKSPACE · staff01');
-  await page.getByRole('button', { name: 'เรียกคิวถัดไป', exact: true }).click();
-  await expect(page.locator('.current-counter strong')).toHaveText('กลุ่มทั่วไป001');
-  await page.getByRole('button', { name: 'เรียกคิวถัดไป', exact: true }).click();
-  await expect(page.locator('.current-counter strong')).toHaveText('กลุ่มทั่วไป002');
-  await page.getByRole('button', { name: 'เรียกซ้ำ', exact: true }).click();
+  await page.locator('.staff-group-column[data-group="A"]').getByRole('button', { name: 'เรียกคิวถัดไป', exact: true }).click();
+  await expect(page.locator('.staff-group-column[data-group="A"] .staff-current-number')).toHaveText('กลุ่มทั่วไป001');
+  await page.locator('.staff-group-column[data-group="A"]').getByRole('button', { name: 'เรียกคิวถัดไป', exact: true }).click();
+  await expect(page.locator('.staff-group-column[data-group="A"] .staff-current-number')).toHaveText('กลุ่มทั่วไป002');
+  await page.locator('.staff-group-column[data-group="A"]').getByRole('button', { name: 'เรียกซ้ำ', exact: true }).click();
   await expect(page.getByText('เรียกแล้ว 2 ครั้ง')).toBeVisible();
   expect(recalls).toBe(1);
   await page.getByRole('button', { name: 'ยกเลิกคิว', exact: true }).click();
@@ -270,11 +359,11 @@ test('staff login, next, reset confirmation and API error modal', async ({ page 
   for (const width of [320, 390, 768, 1024, 1440]) {
     await page.setViewportSize({ width, height: 900 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-    await expect(page.getByRole('button', { name: 'เรียกคิวถัดไป', exact: true })).toBeVisible();
+    await expect(page.locator('.staff-group-column[data-group="A"]').getByRole('button', { name: 'เรียกคิวถัดไป', exact: true })).toBeVisible();
     if (width === 390) await page.screenshot({ path: 'test-results/staff-mobile.png', fullPage: true });
   }
   await expect(page.getByRole('button', { name: 'ข้ามคิว (Skip)' })).toHaveCount(0);
-  await page.getByRole('button', { name: 'เรียกคิวถัดไป', exact: true }).click();
+  await page.locator('.staff-group-column[data-group="A"]').getByRole('button', { name: 'เรียกคิวถัดไป', exact: true }).click();
   await expect(page.getByRole('dialog')).toContainText('ทดสอบข้อผิดพลาดจาก API');
   await page.getByRole('button', { name: 'รับทราบ', exact: true }).click();
   await page.getByRole('button', { name: 'ส่งออกรายงาน' }).click();

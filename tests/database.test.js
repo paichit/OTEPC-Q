@@ -16,7 +16,7 @@ test('PostgreSQL queue lifecycle, idempotency, date scoping and permissions', as
     const token = (await db.query("select public.staff_login('staff01', 'safe-test-password-123') as login")).rows[0].login.token;
     await db.exec('reset role');
     const issue = async (group, id = randomUUID()) => (await db.query('select to_jsonb(public.issue_queue($1, $2)) as q', [group, id])).rows[0].q;
-    const call = async (expected = null) => (await db.query('select to_jsonb(public.call_next($1, $2)) as q', [token, expected])).rows[0].q;
+    const call = async (expected = null, group = 'A') => (await db.query('select to_jsonb(public.call_next_in_group($1, $2, $3)) as q', [token, group, expected])).rows[0].q;
     const snapshot = async () => (await db.query('select public.queue_snapshot() as s')).rows[0].s;
     let a1, a2, b1;
     await t.test('anonymous kiosk can issue, retry returns the identical ticket', async () => {
@@ -36,17 +36,22 @@ test('PostgreSQL queue lifecycle, idempotency, date scoping and permissions', as
       await db.exec('reset role');
     });
     await db.exec('set role anon');
-    await t.test('FIFO across A/B, atomic completion, and stale call protection', async () => {
+    await t.test('FIFO within each group, independent current tickets, and stale call protection', async () => {
       assert.equal((await call()).id, a1.id);
       await assert.rejects(call(), /เปลี่ยนโดยเจ้าหน้าที่/);
-      assert.equal((await call(a1.id)).id, b1.id);
+      await assert.rejects(call(a1.id, 'B'), /เปลี่ยนโดยเจ้าหน้าที่/);
+      assert.equal((await call(null, 'B')).id, b1.id);
+      assert.equal((await snapshot()).queues.find(q => q.id === a1.id).status, 'calling');
+      assert.equal((await snapshot()).queues.find(q => q.id === b1.id).status, 'calling');
+      assert.equal((await call(a1.id)).id, a2.id);
       assert.equal((await snapshot()).queues.find(q => q.id === a1.id).status, 'completed');
       assert.equal((await snapshot()).queues.find(q => q.id === b1.id).status, 'calling');
-      assert.equal((await call(b1.id)).id, a2.id);
       const empty = await call(a2.id);
       assert.ok(empty === null || empty.id === null);
       assert.equal((await snapshot()).queues.find(q => q.id === a2.id).status, 'calling');
-      assert.equal((await snapshot()).queues.filter(q => q.status === 'calling').length, 1);
+      assert.equal((await snapshot()).queues.filter(q => q.status === 'calling').length, 2);
+      await assert.rejects(call(null, 'C'), /กลุ่มไม่ถูกต้อง/);
+      await assert.rejects(db.query('select public.call_next($1, $2)', [token, a2.id]), /เรียกคิวแยกกลุ่ม/);
       assert.equal((await snapshot()).queues.find(q => q.id === a1.id).call_count, 1);
     });
     await t.test('recall creates a separate event and cancel affects waiting only', async () => {
@@ -124,6 +129,9 @@ test('PostgreSQL queue lifecycle, idempotency, date scoping and permissions', as
       const auditMigration = await readFile(new URL('../supabase/migrate-uat-cancellation-audit.sql', import.meta.url), 'utf8');
       await db.exec(auditMigration);
       await db.exec(auditMigration);
+      const groupMigration = await readFile(new URL('../supabase/migrate-group-calling.sql', import.meta.url), 'utf8');
+      await db.exec(groupMigration);
+      await db.exec(groupMigration);
       await db.exec('set role anon');
       const after = await snapshot();
       assert.equal(after.queues.filter(q => ['completed', 'skipped', 'cancelled'].includes(q.status)).length, 50);

@@ -19,7 +19,8 @@ create table public.queues (
   check (status <> 'calling' or called_at is not null)
 );
 create index queues_daily_waiting on public.queues (queue_date, created_at, id) where status = 'waiting';
-create unique index queues_one_active_call_per_day on public.queues (queue_date) where status = 'calling';
+create unique index queues_one_active_call_per_group on public.queues (queue_date, service_group) where status = 'calling';
+create index queues_group_waiting on public.queues (queue_date, service_group, created_at, id) where status = 'waiting';
 create index queues_daily_history
   on public.queues (queue_date, updated_at desc, id)
   where status in ('completed', 'skipped', 'cancelled');
@@ -207,6 +208,14 @@ $$;
 
 create function public.call_next(p_token text, p_expected uuid default null) returns public.queues
 language plpgsql security definer set search_path = '' as $$
+begin
+  perform public.require_queue_staff(p_token);
+  raise exception 'ระบบเปลี่ยนเป็นเรียกคิวแยกกลุ่มแล้ว กรุณารีเฟรชหน้าเว็บก่อนเรียกคิว';
+end;
+$$;
+
+create function public.call_next_in_group(p_token text, p_group text, p_expected uuid default null) returns public.queues
+language plpgsql security definer set search_path = '' as $$
 declare
   actor_id uuid;
   d date := (now() at time zone 'Asia/Bangkok')::date;
@@ -214,13 +223,18 @@ declare
   current_id uuid;
 begin
   actor_id := public.require_queue_staff(p_token);
+  if p_group is null or p_group not in ('A', 'B') then
+    raise exception 'กลุ่มไม่ถูกต้อง';
+  end if;
+  -- Share the existing daily lock with issue/cancel/restore/recall/reset.
   perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('otepc-queue:' || d::text, 0));
-  select id into current_id from public.queues where queue_date = d and status = 'calling';
+  select id into current_id from public.queues
+    where queue_date = d and service_group = p_group and status = 'calling';
   if current_id is distinct from p_expected then
-    raise exception 'คิวปัจจุบันถูกเปลี่ยนโดยเจ้าหน้าที่อีกคนแล้ว กรุณาโหลดข้อมูลอีกครั้ง';
+    raise exception 'คิวปัจจุบันของกลุ่มนี้ถูกเปลี่ยนโดยเจ้าหน้าที่อีกคนแล้ว กรุณาโหลดข้อมูลอีกครั้ง';
   end if;
   select * into next_queue from public.queues
-    where queue_date = d and status = 'waiting'
+    where queue_date = d and service_group = p_group and status = 'waiting'
     order by created_at, id limit 1 for update;
   if not found then return null; end if;
   update public.queues set status = 'completed', updated_at = clock_timestamp() where id = current_id;
@@ -292,12 +306,15 @@ declare
 begin
   actor_id := public.require_queue_staff(p_token);
   perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('otepc-queue:' || d::text, 0));
+  select * into result from public.queues
+    where id = p_queue_id and queue_date = d and status = 'cancelled' for update;
+  if not found then raise exception 'คืนคิวนี้ไม่ได้ กรุณาโหลดข้อมูลอีกครั้ง'; end if;
   select greatest(pg_catalog.clock_timestamp(), coalesce(max(created_at) + interval '1 microsecond', '-infinity'::timestamptz))
-    into restored_time from public.queues where queue_date = d and status = 'waiting';
+    into restored_time from public.queues
+    where queue_date = d and service_group = result.service_group and status = 'waiting';
   update public.queues set status = 'waiting', created_at = restored_time,
     cancelled_at = null, updated_at = restored_time
-    where id = p_queue_id and queue_date = d and status = 'cancelled' returning * into result;
-  if not found then raise exception 'คืนคิวนี้ไม่ได้ กรุณาโหลดข้อมูลอีกครั้ง'; end if;
+    where id = result.id returning * into result;
   insert into public.queue_restore_events (queue_id, queue_date, queue_number, service_group, restored_at, staff_id)
     values (result.id, result.queue_date, result.queue_number, result.service_group, restored_time, actor_id);
   return result;
@@ -516,6 +533,7 @@ language sql stable security definer set search_path = '' as $$
   )
   select jsonb_build_object(
     'queue_date', (now() at time zone 'Asia/Bangkok')::date,
+    'calling_mode', 'by_group',
     'group_names', (select jsonb_build_object('A', name_a, 'B', name_b) from public.queue_group_config where id = 1),
     'queues', coalesce((
       select jsonb_agg(to_jsonb(v) || jsonb_build_object(
@@ -535,6 +553,7 @@ revoke all on function public.staff_session(text) from public, anon, authenticat
 revoke all on function public.staff_logout(text) from public, anon, authenticated;
 revoke all on function public.require_queue_staff(text) from public, anon, authenticated;
 revoke all on function public.call_next(text, uuid) from public, anon, authenticated;
+revoke all on function public.call_next_in_group(text, text, uuid) from public, anon, authenticated;
 revoke all on function public.recall_current(text, uuid) from public, anon, authenticated;
 revoke all on function public.cancel_waiting(text, uuid) from public, anon, authenticated;
 revoke all on function public.restore_cancelled(text, uuid) from public, anon, authenticated;
@@ -547,6 +566,7 @@ grant execute on function public.staff_login(text, text) to anon;
 grant execute on function public.staff_session(text) to anon;
 grant execute on function public.staff_logout(text) to anon;
 grant execute on function public.call_next(text, uuid) to anon;
+grant execute on function public.call_next_in_group(text, text, uuid) to anon;
 grant execute on function public.recall_current(text, uuid) to anon;
 grant execute on function public.cancel_waiting(text, uuid) to anon;
 grant execute on function public.restore_cancelled(text, uuid) to anon;

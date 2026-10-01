@@ -21,6 +21,9 @@ test('UAT queue names, cancelled restoration order, report access and migration'
     const namesMigration = await readFile(new URL('../supabase/migrate-shared-group-names.sql', import.meta.url), 'utf8');
     await db.exec(namesMigration);
     await db.exec(namesMigration);
+    const groupMigration = await readFile(new URL('../supabase/migrate-group-calling.sql', import.meta.url), 'utf8');
+    await db.exec(groupMigration);
+    await db.exec(groupMigration);
     await db.exec("insert into public.staff_accounts (username, password_hash) values ('staff01', extensions.crypt('safe-test-password-123', extensions.gen_salt('bf', 12)))");
     await db.exec('set role anon');
     const token = (await db.query("select public.staff_login('staff01', 'safe-test-password-123') as login")).rows[0].login.token;
@@ -46,10 +49,11 @@ test('UAT queue names, cancelled restoration order, report access and migration'
     await assert.rejects(db.query('select public.restore_cancelled($1, $2)', [token, first.id]), /คืนคิวนี้ไม่ได้/);
     await db.query('select public.cancel_waiting($1, $2)', [token, first.id]);
     await db.query('select public.restore_cancelled($1, $2)', [token, first.id]);
-    const call = async expected => (await db.query('select to_jsonb(public.call_next($1, $2)) as q', [token, expected])).rows[0].q;
-    assert.equal((await call(null)).id, second.id);
-    assert.equal((await call(second.id)).id, third.id);
-    assert.equal((await call(third.id)).id, first.id);
+    const call = async (group, expected = null) => (await db.query('select to_jsonb(public.call_next_in_group($1, $2, $3)) as q', [token, group, expected])).rows[0].q;
+    assert.equal((await call('B')).id, second.id);
+    assert.equal((await call('A')).id, third.id);
+    assert.equal((await call('A', third.id)).id, first.id);
+    assert.equal((await db.query('select public.queue_snapshot() as s')).rows[0].s.queues.find(q => q.id === second.id).status, 'calling');
     const report = (await db.query('select public.queue_report($1, null, null) as r', [token])).rows[0].r;
     assert.ok(report.some(row => row.queue_number === first.queue_number && row.event_kind === 'restored'));
     assert.ok(report.some(row => row.queue_number === first.queue_number && row.event_kind === 'cancelled'));

@@ -46,7 +46,7 @@ export default function App() {
   };
   const waiting = data.queues.filter(q => q.status === 'waiting').length;
   const calling = data.queues.filter(q => q.status === 'calling').length;
-  const props = { queues: data.queues.map(queue => namedQueue(queue, sharedNames)), settings: effectiveSettings, onError: setError, refresh: data.refresh };
+  const props = { queues: data.queues.map(queue => namedQueue(queue, sharedNames)), settings: effectiveSettings, onError: setError, refresh: data.refresh, callingMode: data.calling_mode };
 
   return <div className={`app-shell app-shell-${view}`}>
     <header className="site-header"><div className="header-inner">

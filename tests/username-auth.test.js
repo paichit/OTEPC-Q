@@ -57,14 +57,15 @@ test('username-only staff authentication and queue permissions', async t => {
       assert.equal(b.queue_number, 'กลุ่มประสบการณ์001');
       await assert.rejects(db.exec('select public.call_next(null)'));
       await assert.rejects(db.query('select public.call_next($1, null)', ['a'.repeat(64)]), /เซสชันเจ้าหน้าที่/);
-      const first = (await query('select to_jsonb(public.call_next($1, null)) as q', [token])).q;
+      await assert.rejects(db.query("select public.call_next_in_group($1, 'A', null)", ['a'.repeat(64)]), /เซสชันเจ้าหน้าที่/);
+      const first = (await query("select to_jsonb(public.call_next_in_group($1, 'A', null)) as q", [token])).q;
       assert.equal(first.id, a.id);
       await query('select public.recall_current($1, $2)', [token, a.id]);
       const history = (await query('select public.queue_call_history($1, 50) as h', [token])).h;
       assert.equal(history.find(row => row.queue_id === a.id).call_count, 2);
-      const second = (await query('select to_jsonb(public.call_next($1, $2)) as q', [token, a.id])).q;
+      const second = (await query("select to_jsonb(public.call_next_in_group($1, 'B', null)) as q", [token])).q;
       assert.equal(second.id, b.id);
-      assert.equal((await snapshot()).queues.find(q => q.id === a.id).status, 'completed');
+      assert.equal((await snapshot()).queues.find(q => q.id === a.id).status, 'calling');
       await query('select public.reset_today($1)', [token]);
       assert.equal((await snapshot()).queues.length, 0);
       assert.equal((await query('select public.queue_call_history($1, 50) as h', [token])).h.length, 2);
