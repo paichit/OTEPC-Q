@@ -58,7 +58,7 @@ test('each group calls independently and has its own current, waiting and displa
   await expect(b.getByText('เรียกแล้ว 1 ครั้ง', { exact: false })).toBeVisible();
   await page.screenshot({ path: 'test-results/staff-group-desktop.png', fullPage: true });
   await page.getByRole('button', { name: 'จอแสดงคิว', exact: true }).click();
-  await page.getByRole('button', { name: 'เริ่มระบบและเปิดเสียง' }).click();
+  await page.getByRole('button', { name: 'ดูจอแบบไม่เปิดเสียง' }).click();
   const displayA = page.getByRole('region', { name: 'จอแสดงคิวกลุ่มทั่วไป', exact: true });
   const displayB = page.getByRole('region', { name: 'จอแสดงคิวกลุ่มประสบการณ์', exact: true });
   await expect(displayA.locator('.prototype-current-number')).toHaveText('กลุ่มทั่วไป001');
@@ -129,7 +129,7 @@ test('shared group names and typed HEX propagate to tickets display history and 
   await expect(page.getByRole('dialog')).toContainText('ผู้สมัครประสบการณ์002');
   await page.getByRole('button', { name: 'ปิดหน้าต่าง' }).click();
   await page.getByRole('button', { name: 'จอแสดงคิว', exact: true }).click();
-  await page.getByRole('button', { name: 'เริ่มระบบและเปิดเสียง' }).click();
+  await page.getByRole('button', { name: 'ดูจอแบบไม่เปิดเสียง' }).click();
   await expect(page.locator('.prototype-display-group[data-group="A"] .prototype-current-number')).toHaveText('ผู้สมัครทั่วไป001');
   await page.getByRole('button', { name: 'จัดการคิว', exact: true }).click();
   await page.getByRole('button', { name: 'ประวัติการเรียก', exact: true }).click();
@@ -147,16 +147,15 @@ test('shared group names and typed HEX propagate to tickets display history and 
 test('starting the queue display requests and plays spoken confirmation', async ({ page }) => {
   await page.addInitScript(() => {
     window.startupPlayCount = 0;
-    HTMLMediaElement.prototype.play = function () {
-      window.startupPlayCount++;
-      return Promise.resolve();
+    window.Audio = class {
+      play() { window.startupPlayCount++; return Promise.resolve(); }
+      pause() {}
     };
   });
   await page.route('https://queue-test.supabase.co/functions/v1/queue-tts', async route => {
     expect(route.request().postDataJSON()).toEqual({ action: 'startup' });
     await route.fulfill({ status: 200, contentType: 'audio/mpeg', body: 'mock-audio' });
   });
-  await page.route('https://queue-test.supabase.co/functions/v1/queue-audio-lock', route => route.fulfill({ json: { acquired: true } }));
   await page.route('https://queue-test.supabase.co/rest/v1/rpc/**', route => route.fulfill({ json: { queue_date: '2026-09-22', queues: [] } }));
   await page.goto('/');
   await page.getByRole('button', { name: 'จอแสดงคิว', exact: true }).click();
@@ -216,7 +215,7 @@ test('kiosk, settings, display and responsive layout', async ({ page }) => {
   await page.getByRole('button', { name: 'ตั้งค่าระบบ', exact: true }).click();
   await expect(page.getByRole('switch')).toHaveAttribute('aria-checked', 'false');
   await page.getByRole('button', { name: 'จอแสดงคิว', exact: true }).click();
-  await page.getByRole('button', { name: 'เริ่มระบบและเปิดเสียง' }).click();
+  await page.getByRole('button', { name: 'ดูจอแบบไม่เปิดเสียง' }).click();
   await expect(page.getByText('กรุณารอเรียกคิวค่ะ')).toBeVisible();
   await expect(page.getByRole('button', { name: 'เปิดเต็มจอ' })).toBeVisible();
   await expect(page.getByText('คิวถัดไป / Next')).toHaveCount(2);
@@ -225,7 +224,7 @@ test('kiosk, settings, display and responsive layout', async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     for (const label of ['รับบัตรคิว', 'จัดการคิว', 'จอแสดงคิว', 'ตั้งค่าระบบ']) {
       await page.getByRole('button', { name: label, exact: true }).click();
-      if (label === 'จอแสดงคิว') await page.getByRole('button', { name: 'เริ่มระบบและเปิดเสียง' }).click();
+      if (label === 'จอแสดงคิว') await page.getByRole('button', { name: 'ดูจอแบบไม่เปิดเสียง' }).click();
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
       if (label === 'จอแสดงคิว') {
         expect(await page.evaluate(() => document.documentElement.scrollHeight <= window.innerHeight + 1)).toBe(true);
@@ -248,7 +247,7 @@ test('kiosk, settings, display and responsive layout', async ({ page }) => {
   await page.setViewportSize({ width: 1920, height: 900 });
   await page.reload();
   await page.getByRole('button', { name: 'จอแสดงคิว', exact: true }).click();
-  await page.getByRole('button', { name: 'เริ่มระบบและเปิดเสียง' }).click();
+  await page.getByRole('button', { name: 'ดูจอแบบไม่เปิดเสียง' }).click();
   await expect(page.getByText('กลุ่มประสบการณ์002')).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth && document.documentElement.scrollHeight <= window.innerHeight + 1)).toBe(true);
   await page.screenshot({ path: 'test-results/display-tv.png', fullPage: true });

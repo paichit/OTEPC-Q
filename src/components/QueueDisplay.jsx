@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Volume2, MonitorPlay, Maximize, Minimize } from 'lucide-react';
+import { Volume2, VolumeX, MonitorPlay, Maximize, Minimize } from 'lucide-react';
 import { textColor } from '../lib/queue';
 import { groupLabels } from '../lib/groups';
 import { groupQueues } from '../lib/groupQueues';
 
 export default function QueueDisplay({ queues, settings, started, starting, onStart, onStop, speechError }) {
+  const [viewing, setViewing] = useState(false);
   const [fullscreen, setFullscreen] = useState(Boolean(document.fullscreenElement));
   const [screenError, setScreenError] = useState('');
   useEffect(() => () => onStop(), [onStop]);
@@ -23,9 +24,26 @@ export default function QueueDisplay({ queues, settings, started, starting, onSt
       setScreenError('');
     } catch { setScreenError('ไม่สามารถเปิดเต็มจอได้บนเบราว์เซอร์นี้'); }
   }
+  function viewSilently() {
+    onStop();
+    setViewing(true);
+  }
+  function enableSound() {
+    setViewing(true);
+    onStart();
+  }
+  const fullscreenButton = <button className="fullscreen-button" onClick={toggleFullscreen} aria-label={fullscreen ? 'ออกจากโหมดเต็มจอ' : 'เปิดเต็มจอ'} title={fullscreen ? 'ออกจากโหมดเต็มจอ' : 'เปิดเต็มจอ'}>{fullscreen ? <Minimize /> : <Maximize />}</button>;
   return <div className="prototype-display">
+    {(viewing || started) && <div className="display-controls" aria-label="ควบคุมจอแสดงคิว">
+      {fullscreenButton}
+      <span className={`display-sound-status${started ? ' sound-on' : ''}`} role="status">{started ? <Volume2 size={18} /> : <VolumeX size={18} />}{starting ? 'กำลังเปิดเสียง…' : started ? 'เสียงประกาศ: เปิด' : 'เสียงประกาศ: ปิด'}</span>
+      {started || starting
+        ? <button className="display-sound-button" onClick={viewSilently}><VolumeX size={18} />{starting ? 'ยกเลิกการเปิดเสียง' : 'ปิดเสียงบนจอนี้'}</button>
+        : <button className="display-sound-button" onClick={enableSound} disabled={!settings.sound} title={!settings.sound ? 'เปิดใช้เสียงประกาศในหน้าตั้งค่าระบบก่อน' : 'ให้จอนี้เป็นเครื่องประกาศเสียง'}><Volume2 size={18} />เปิดเสียงบนจอนี้</button>}
+      {!settings.sound && <small>เปิดใช้เสียงประกาศในหน้าตั้งค่าระบบก่อน</small>}
+    </div>}
     {(speechError || screenError) && <p role="status" className="info-box m-4">{speechError || screenError}</p>}
-    <button className="fullscreen-button" onClick={toggleFullscreen} aria-label={fullscreen ? 'ออกจากโหมดเต็มจอ' : 'เปิดเต็มจอ'} title={fullscreen ? 'ออกจากโหมดเต็มจอ' : 'เปิดเต็มจอ'}>{fullscreen ? <Minimize /> : <Maximize />}</button>
+    {!viewing && !started && fullscreenButton}
     <div className="prototype-display-grid prototype-group-grid">
       {['A', 'B'].map(group => {
         const { current: groupCurrent, waiting } = groupQueues(queues, group);
@@ -40,6 +58,6 @@ export default function QueueDisplay({ queues, settings, started, starting, onSt
       })}
     </div>
     <div className="prototype-marquee"><div className="marquee-window"><p style={{ animationDuration: `${settings.speed}s`, color: settings.marqueeColor }}>{marquee}</p></div></div>
-    {!started && <div className="start-overlay"><div className="start-card"><span className="login-icon"><MonitorPlay size={35} /></span><h2 className="text-2xl font-semibold mt-5">เชื่อมต่อระบบเสียงประกาศ</h2><p className="text-slate-500 my-4">คลิกหนึ่งครั้งเพื่อเริ่มจอแสดงผลและฟังเสียงยืนยัน “ระบบเสียงประกาศพร้อมใช้งานค่ะ”</p>{speechError && <p role="alert" className="text-red-600 mb-3">{speechError}</p>}<button className="primary-button w-full" onClick={onStart} disabled={starting}><Volume2 size={20} /> {starting ? 'กำลังเชื่อมต่อเสียง…' : 'เริ่มระบบและเปิดเสียง'}</button></div></div>}
+    {!viewing && !started && <div className="start-overlay"><div className="start-card"><span className="login-icon"><MonitorPlay size={35} /></span><h2 className="text-2xl font-semibold mt-5">เชื่อมต่อระบบเสียงประกาศ</h2><p className="text-slate-500 my-4">เลือกเปิดหรือปิดเสียงบนจอนี้ได้อิสระ ทีวีและโปรเจคเตอร์สามารถเปิดเสียงพร้อมกันได้ และจอที่ปิดเสียงยังแสดงคิวตามปกติ</p>{speechError && <p role="alert" className="text-red-600 mb-3">{speechError}</p>}<button className="primary-button w-full" onClick={enableSound} disabled={starting || !settings.sound}><Volume2 size={20} /> {starting ? 'กำลังเชื่อมต่อเสียง…' : 'เริ่มระบบและเปิดเสียง'}</button><button className="secondary-button w-full mt-3" onClick={viewSilently}><VolumeX size={20} />ดูจอแบบไม่เปิดเสียง</button>{!settings.sound && <p className="text-slate-500 mt-3">เครื่องนี้ปิดใช้เสียงไว้ในหน้าตั้งค่าระบบ</p>}</div></div>}
   </div>;
 }

@@ -9,8 +9,9 @@ test('upgrading single calling point preserves tickets, history, staff and audio
   const db = new PGlite({ extensions: { pgcrypto } });
   try {
     await db.exec('create role anon; create role authenticated; create role service_role; create schema extensions; create extension pgcrypto with schema extensions; grant usage on schema public to anon, authenticated;');
-    let schema = (await readFile(new URL('../supabase/schema.sql', import.meta.url), 'utf8')).split('-- REALTIME SETUP')[0];
-    const legacy = await readFile(new URL('../supabase/migrate-username-only-auth.sql', import.meta.url), 'utf8');
+    // Git checkouts on Windows may use CRLF; fixture rewrites operate on LF lines.
+    let schema = (await readFile(new URL('../supabase/schema.sql', import.meta.url), 'utf8')).replace(/\r\n/g, '\n').split('-- REALTIME SETUP')[0];
+    const legacy = (await readFile(new URL('../supabase/migrate-username-only-auth.sql', import.meta.url), 'utf8')).replace(/\r\n/g, '\n');
     const legacyCall = legacy.match(/create function public\.call_next\([\s\S]*?\n\$\$;/)[0];
     schema = schema.replace(/create function public\.call_next\([\s\S]*?\n\$\$;/, () => legacyCall)
       .replace(/create function public\.call_next_in_group\([\s\S]*?\n\$\$;/, '')

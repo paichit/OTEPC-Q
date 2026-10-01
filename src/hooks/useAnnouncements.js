@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { bangkokDate, readSettings } from '../lib/queue';
-import { fetchCloudQueueAudio, fetchCloudStartupAudio, requestAudioLease } from '../services/cloudTts';
+import { fetchCloudQueueAudio, fetchCloudStartupAudio } from '../services/cloudTts';
 
 
 export default function useAnnouncements(sound) {
@@ -10,54 +10,12 @@ export default function useAnnouncements(sound) {
   const currentAudio = useRef(null);
   const currentAudioUrl = useRef(null);
   const cloudRequest = useRef(null);
-  const audioLockRelease = useRef(null);
   const startingRef = useRef(false);
   const startAttempt = useRef(0);
-  const serverLeaseOwner = useRef(null);
-  const leaseRenewal = useRef(null);
-  const leaseRenewing = useRef(false);
   const seen = useRef(new Set());
   const [started, setStarted] = useState(false);
   const [starting, setStarting] = useState(false);
   const [speechError, setSpeechError] = useState('');
-
-  function releaseAudioLock() {
-    audioLockRelease.current?.();
-    audioLockRelease.current = null;
-  }
-
-  function acquireAudioLock() {
-    if (!navigator.locks?.request) return Promise.resolve(true);
-    return new Promise(resolve => {
-      let settled = false;
-      let release;
-      const held = new Promise(done => { release = done; });
-      try {
-        navigator.locks.request('otepc-q-audio-output', { mode: 'exclusive', ifAvailable: true }, async lock => {
-          if (!lock) {
-            settled = true;
-            resolve(false);
-            return;
-          }
-          audioLockRelease.current = release;
-          settled = true;
-          resolve(true);
-          await held;
-        }).catch(() => {
-          if (!settled) resolve(false);
-        });
-      } catch { resolve(false); }
-    });
-  }
-
-  function releaseServerAudioLease() {
-    clearInterval(leaseRenewal.current);
-    leaseRenewal.current = null;
-    leaseRenewing.current = false;
-    const owner = serverLeaseOwner.current;
-    serverLeaseOwner.current = null;
-    if (owner) requestAudioLease('release', owner).catch(() => {});
-  }
 
   const stop = useCallback(() => {
     active.current = false;
@@ -66,8 +24,6 @@ export default function useAnnouncements(sound) {
     speaking.current = false;
     cloudRequest.current?.abort();
     cloudRequest.current = null;
-    releaseAudioLock();
-    releaseServerAudioLease();
     currentAudio.current?.pause();
     currentAudio.current = null;
     if (currentAudioUrl.current) URL.revokeObjectURL(currentAudioUrl.current);
@@ -75,15 +31,11 @@ export default function useAnnouncements(sound) {
     setStarted(false);
     startingRef.current = false;
     setStarting(false);
+    setSpeechError('');
   }, []);
 
   useEffect(() => { if (!sound) stop(); }, [sound, stop]);
-  useEffect(() => () => {
-    cloudRequest.current?.abort();
-    currentAudio.current?.pause();
-    if (currentAudioUrl.current) URL.revokeObjectURL(currentAudioUrl.current);
-    audioLockRelease.current?.();
-  }, []);
+  useEffect(() => () => stop(), [stop]);
 
   function pump() {
     if (speaking.current || !active.current || !pending.current.length) return;
@@ -139,42 +91,12 @@ export default function useAnnouncements(sound) {
   async function start() {
     if (active.current || startingRef.current) return;
     setSpeechError('');
-    if (!sound) {
-      active.current = true;
-      setStarted(true);
-      return;
-    }
+    if (!sound) return;
     startingRef.current = true;
     const attempt = ++startAttempt.current;
     setStarting(true);
-    const hasAudioLock = await acquireAudioLock();
-    if (attempt !== startAttempt.current) {
-      releaseAudioLock();
-      return;
-    }
-    if (!hasAudioLock) {
-      setSpeechError('มีแท็บอื่นกำลังเปิดเสียงประกาศอยู่ กรุณาปิดเสียงหรือจอแสดงคิวในแท็บนั้นก่อน');
-      startingRef.current = false;
-      setStarting(false);
-      return;
-    }
-    const owner = crypto.randomUUID();
-    try {
-      const claimed = await requestAudioLease('claim', owner);
-      if (attempt !== startAttempt.current) {
-        if (claimed) requestAudioLease('release', owner).catch(() => {});
-        releaseAudioLock();
-        return;
-      }
-      if (!claimed) throw new Error('มีจอแสดงคิวจากอุปกรณ์อื่นกำลังใช้เสียงประกาศอยู่ กรุณาหยุดเสียงที่จอนั้นก่อน');
-      serverLeaseOwner.current = owner;
-    } catch (error) {
-      releaseAudioLock();
-      startingRef.current = false;
-      setStarting(false);
-      setSpeechError(error.message || 'จองสิทธิ์เสียงประกาศไม่สำเร็จ');
-      return;
-    }
+    // Sound is chosen independently in each display tab. Each tab still uses
+    // one serial player so calls from the two groups cannot overlap on that tab.
     const controller = new AbortController();
     cloudRequest.current = controller;
     try {
@@ -195,7 +117,11 @@ export default function useAnnouncements(sound) {
         speaking.current = false;
         pump();
       };
-      audio.onerror = () => setSpeechError('เล่นเสียงยืนยันไม่สำเร็จ กรุณาตรวจสอบลำโพง');
+      audio.onerror = () => {
+        if (attempt !== startAttempt.current) return;
+        stop();
+        setSpeechError('เล่นเสียงยืนยันไม่สำเร็จ กรุณาตรวจสอบลำโพง');
+      };
       speaking.current = true;
       await audio.play();
       if (attempt !== startAttempt.current) {
@@ -204,23 +130,8 @@ export default function useAnnouncements(sound) {
       }
       active.current = true;
       setStarted(true);
-      leaseRenewal.current = setInterval(async () => {
-        if (leaseRenewing.current || !serverLeaseOwner.current) return;
-        leaseRenewing.current = true;
-        try {
-          const renewed = await requestAudioLease('renew', owner);
-          if (!renewed && active.current) {
-            stop();
-            setSpeechError('หมดสิทธิ์ใช้เสียงประกาศ จึงหยุดเสียงเพื่อป้องกันเสียงซ้อน');
-          }
-        } catch {
-          if (active.current) {
-            stop();
-            setSpeechError('ติดต่อระบบยืนยันสิทธิ์เสียงไม่ได้ จึงหยุดเสียงเพื่อป้องกันเสียงซ้อน');
-          }
-        } finally { leaseRenewing.current = false; }
-      }, 10000);
     } catch (error) {
+      if (attempt !== startAttempt.current) return;
       if (currentAudio.current) {
         currentAudio.current.pause();
         currentAudio.current = null;
@@ -230,13 +141,13 @@ export default function useAnnouncements(sound) {
         currentAudioUrl.current = null;
       }
       speaking.current = false;
-      releaseAudioLock();
-      releaseServerAudioLease();
       if (!controller.signal.aborted) setSpeechError(error.message || 'เริ่มระบบเสียงไม่สำเร็จ');
     } finally {
-      if (cloudRequest.current === controller) cloudRequest.current = null;
-      startingRef.current = false;
-      setStarting(false);
+      if (attempt === startAttempt.current) {
+        if (cloudRequest.current === controller) cloudRequest.current = null;
+        startingRef.current = false;
+        setStarting(false);
+      }
     }
   }
 
